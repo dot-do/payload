@@ -31,6 +31,7 @@ export const handleAuthRedirect = ({ config, route, searchParams, user }: Args):
   const redirectTo = formatAdminURL({
     adminRoute,
     path: user ? unauthorizedRoute : loginRouteFromConfig,
+    serverURL: config.serverURL,
   })
 
   const parsedLoginRouteSearchParams = qs.parse(redirectTo.split('?')[1] ?? '')
@@ -43,5 +44,5 @@ export const handleAuthRedirect = ({ config, route, searchParams, user }: Args):
     { addQueryPrefix: true },
   )}`
 
-  return `${redirectTo.split('?')[0]}${searchParamsWithRedirect}`
+  return `${redirectTo.split('?', 1)[0]}${searchParamsWithRedirect}`
 }

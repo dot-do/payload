@@ -55,7 +55,7 @@ type TemplateVariation = {
    *
    * @default 'default'
    */
-  targetDeployment?: 'default' | 'vercel'
+  targetDeployment?: 'cloudflare' | 'default' | 'vercel'
 }
 
 main().catch((error) => {
@@ -196,6 +196,23 @@ async function main() {
       skipReadme: true,
       workspace: true,
     },
+    {
+      name: 'with-cloudflare-d1',
+      db: 'd1-sqlite',
+      dirname: 'with-cloudflare-d1',
+      generateLockfile: false,
+      sharp: false,
+      skipConfig: true, // Do not copy the payload.config.ts file from the base template
+      storage: 'r2Storage',
+      // The blank template is used as a base for create-payload-app functionality,
+      // so we do not configure the payload.config.ts file, which leaves the placeholder comments.
+      configureConfig: false,
+      base: 'none',
+      skipDockerCompose: true,
+      skipReadme: true,
+      workspace: false,
+      targetDeployment: 'cloudflare',
+    },
   ]
 
   // If template is set, only generate that template
@@ -289,6 +306,8 @@ async function main() {
       })
     }
 
+    // Install packages BEFORE running any commands that load the config
+    // This ensures all imports in payload.config.ts can be resolved
     if (generateLockfile) {
       log('Generating pnpm-lock.yaml')
       execSyncSafe(`pnpm install ${workspace ? '' : '--ignore-workspace'} --no-frozen-lockfile`, {

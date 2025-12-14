@@ -25,8 +25,10 @@ import {
   mediaSlug,
   noRestrictFileMimeTypesSlug,
   noRestrictFileTypesSlug,
+  pdfOnlySlug,
   reduceSlug,
   relationSlug,
+  restrictedMimeTypesSlug,
   restrictFileTypesSlug,
   skipAllowListSafeFetchMediaSlug,
   skipSafeFetchHeaderFilterSlug,
@@ -97,6 +99,31 @@ describe('Collections - Uploads', () => {
         expect(sizes).toHaveProperty('icon')
       })
 
+      it('should URL encode filenames with spaces in both main url and size urls', async () => {
+        const filePath = path.resolve(dirname, './image.png')
+        const file = await getFileByPath(filePath)
+        file!.name = 'my test image.png'
+
+        const mediaDoc = (await payload.create({
+          collection: mediaSlug,
+          data: {},
+          file,
+        })) as unknown as Media
+
+        expect(mediaDoc.url).toBeDefined()
+        expect(mediaDoc.url).toContain('%20')
+        expect(mediaDoc.url).not.toContain(' ')
+
+        // Check that size URLs are also properly encoded
+        expect(mediaDoc.sizes?.tablet?.url).toBeDefined()
+        expect(mediaDoc.sizes?.tablet?.url).toContain('%20')
+        expect(mediaDoc.sizes?.tablet?.url).not.toContain(' ')
+
+        expect(mediaDoc.sizes?.icon?.url).toBeDefined()
+        expect(mediaDoc.sizes?.icon?.url).toContain('%20')
+        expect(mediaDoc.sizes?.icon?.url).not.toContain(' ')
+      })
+
       it('creates from form data given an svg', async () => {
         const filePath = path.join(dirname, './image.svg')
         const formData = new FormData()
@@ -122,6 +149,24 @@ describe('Collections - Uploads', () => {
         expect(doc.sizes.maintainedAspectRatio.url).toBeFalsy()
         expect(doc.width).toBeDefined()
         expect(doc.height).toBeDefined()
+      })
+
+      it('should upload svg in an image mimetype restricted collection', async () => {
+        const filePath = path.join(dirname, './image.svg')
+        const formData = new FormData()
+        const { file, handle } = await createStreamableFile(filePath)
+        formData.append('file', file)
+
+        const response = await restClient.POST(`/any-images`, {
+          body: formData,
+          file,
+        })
+
+        const { doc } = await response.json()
+        await handle.close()
+
+        expect(response.status).toBe(201)
+        expect(doc.mimeType).toEqual('image/svg+xml')
       })
 
       it('should have valid image url', async () => {
@@ -226,6 +271,36 @@ describe('Collections - Uploads', () => {
 
         // Check api response
         expect(doc.filename).toBeDefined()
+      })
+
+      it('should not allow creation of corrupted PDF', async () => {
+        const formData = new FormData()
+        const filePath = path.join(dirname, './fake-pdf.pdf')
+        const { file, handle } = await createStreamableFile(filePath, 'application/pdf')
+        formData.append('file', file)
+
+        const response = await restClient.POST(`/${pdfOnlySlug}`, {
+          body: formData,
+        })
+        await handle.close()
+
+        expect(response.status).toBe(400)
+      })
+
+      it('should not allow invalid mimeType to be created', async () => {
+        const formData = new FormData()
+        const filePath = path.join(dirname, './image.jpg')
+        const { file, handle } = await createStreamableFile(filePath, 'image/png')
+        formData.append('file', file)
+        formData.append('mime', 'image/png')
+        formData.append('contentType', 'image/png')
+
+        const response = await restClient.POST(`/${restrictedMimeTypesSlug}`, {
+          body: formData,
+        })
+        await handle.close()
+
+        expect(response.status).toBe(400)
       })
     })
     describe('update', () => {

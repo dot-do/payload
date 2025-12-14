@@ -3,7 +3,8 @@ import url from 'url'
 import type { Collection } from '../../collections/config/types.js'
 import type { Document, PayloadRequest } from '../../types/index.js'
 
-import { buildAfterOperation } from '../../collections/operations/utils.js'
+import { buildAfterOperation } from '../../collections/operations/utilities/buildAfterOperation.js'
+import { buildBeforeOperation } from '../../collections/operations/utilities/buildBeforeOperation.js'
 import { Forbidden } from '../../errors/index.js'
 import { commitTransaction } from '../../utilities/commitTransaction.js'
 import { initTransaction } from '../../utilities/initTransaction.js'
@@ -41,18 +42,11 @@ export const refreshOperation = async (incomingArgs: Arguments): Promise<Result>
     // beforeOperation - Collection
     // /////////////////////////////////////
 
-    if (args.collection.config.hooks?.beforeOperation?.length) {
-      for (const hook of args.collection.config.hooks.beforeOperation) {
-        args =
-          (await hook({
-            args,
-            collection: args.collection?.config,
-            context: args.req.context,
-            operation: 'refresh',
-            req: args.req,
-          })) || args
-      }
-    }
+    args = await buildBeforeOperation({
+      args,
+      collection: args.collection.config,
+      operation: 'refresh',
+    })
 
     // /////////////////////////////////////
     // Refresh
@@ -92,8 +86,8 @@ export const refreshOperation = async (incomingArgs: Arguments): Promise<Result>
       const tokenExpInMs = collectionConfig.auth.tokenExpiration * 1000
       existingSession.expiresAt = new Date(now.getTime() + tokenExpInMs)
 
-      // Ensure updatedAt date is always updated
-      user.updatedAt = new Date().toISOString()
+      // Prevent updatedAt from being updated when only refreshing a session
+      user.updatedAt = null
 
       await req.payload.db.updateOne({
         id: user.id,

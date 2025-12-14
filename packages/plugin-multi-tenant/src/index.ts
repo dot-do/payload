@@ -2,6 +2,7 @@ import type { AcceptedLanguages } from '@payloadcms/translations'
 import type { CollectionConfig, Config } from 'payload'
 
 import chalk from 'chalk'
+import { hasAutosaveEnabled } from 'payload/shared'
 
 import type { PluginDefaultTranslationsObject } from './translations/types.js'
 import type { MultiTenantPluginConfig } from './types.js'
@@ -99,6 +100,7 @@ export const multiTenantPlugin =
     }
 
     addCollectionAccess({
+      accessResultCallback: pluginConfig.usersAccessResultOverride,
       adminUsersSlug: adminUsersCollection.slug,
       collection: adminUsersCollection,
       fieldName: `${tenantsArrayFieldName}.${tenantsArrayTenantFieldName}`,
@@ -168,7 +170,7 @@ export const multiTenantPlugin =
         /**
          * Add filter options to all relationship fields
          */
-        addFilterOptionsToFields({
+        collection.fields = addFilterOptionsToFields({
           blockReferencesWithFilters,
           config: incomingConfig,
           fields: collection.fields,
@@ -189,6 +191,7 @@ export const multiTenantPlugin =
             tenantField({
               name: tenantFieldName,
               debug: pluginConfig.debug,
+              isAutosaveEnabled: hasAutosaveEnabled(collection),
               overrides: pluginConfig.collections[collection.slug]?.tenantFieldOverrides
                 ? pluginConfig.collections[collection.slug]?.tenantFieldOverrides
                 : pluginConfig.tenantField || {},
@@ -226,6 +229,7 @@ export const multiTenantPlugin =
            * Add access control constraint to tenant enabled folders collection
            */
           addCollectionAccess({
+            accessResultCallback: pluginConfig.collections[foldersSlug]?.accessResultOverride,
             adminUsersSlug: adminUsersCollection.slug,
             collection,
             fieldName: tenantFieldName,
@@ -353,7 +357,7 @@ export const multiTenantPlugin =
         /**
          * Add filter options to all relationship fields
          */
-        addFilterOptionsToFields({
+        collection.fields = addFilterOptionsToFields({
           blockReferencesWithFilters,
           config: incomingConfig,
           fields: collection.fields,
@@ -374,6 +378,7 @@ export const multiTenantPlugin =
             tenantField({
               name: tenantFieldName,
               debug: pluginConfig.debug,
+              isAutosaveEnabled: hasAutosaveEnabled(collection),
               overrides: pluginConfig.collections[collection.slug]?.tenantFieldOverrides
                 ? pluginConfig.collections[collection.slug]?.tenantFieldOverrides
                 : pluginConfig.tenantField || {},
@@ -411,6 +416,7 @@ export const multiTenantPlugin =
            * Add access control constraint to tenant enabled collection
            */
           addCollectionAccess({
+            accessResultCallback: pluginConfig.collections[collection.slug]?.accessResultOverride,
             adminUsersSlug: adminUsersCollection.slug,
             collection,
             fieldName: tenantFieldName,

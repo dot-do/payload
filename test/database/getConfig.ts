@@ -132,6 +132,11 @@ export const getConfig: () => Partial<Config> = () => ({
           name: 'category',
         },
         {
+          type: 'json',
+          name: 'categoryID',
+          virtual: 'category.id',
+        },
+        {
           type: 'text',
           name: 'categoryTitle',
           virtual: 'category.title',
@@ -146,6 +151,12 @@ export const getConfig: () => Partial<Config> = () => ({
           relationTo: 'categories',
           hasMany: true,
           name: 'categories',
+        },
+        {
+          type: 'relationship',
+          relationTo: 'categories-custom-id',
+          hasMany: true,
+          name: 'categoriesCustomID',
         },
         {
           type: 'relationship',
@@ -188,6 +199,11 @@ export const getConfig: () => Partial<Config> = () => ({
         {
           name: 'number',
           type: 'number',
+        },
+        {
+          name: 'numberDefault',
+          type: 'number',
+          defaultValue: 1,
         },
         {
           type: 'blocks',
@@ -1075,7 +1091,7 @@ export const getConfig: () => Partial<Config> = () => ({
   ],
   localization: {
     defaultLocale: 'en',
-    locales: ['en', 'es'],
+    locales: ['en', 'es', 'uk'],
   },
   onInit: async (payload) => {
     if (process.env.SEED_IN_CONFIG_ONINIT !== 'false') {

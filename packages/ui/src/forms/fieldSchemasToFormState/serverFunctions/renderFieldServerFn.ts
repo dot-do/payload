@@ -1,15 +1,21 @@
-import { deepMerge, type Field, type FieldState, type ServerFunction } from 'payload'
+import {
+  deepMerge,
+  type Field,
+  type FieldState,
+  type ServerFunction,
+  UnauthorizedError,
+} from 'payload'
 
 import { getClientConfig } from '../../../utilities/getClientConfig.js'
 import { getClientSchemaMap } from '../../../utilities/getClientSchemaMap.js'
 import { getSchemaMap } from '../../../utilities/getSchemaMap.js'
 import { renderField } from '../renderField.js'
 
-export type RenderFieldServerFnArgs = {
+export type RenderFieldServerFnArgs<TField = Field> = {
   /**
    * Override field config pulled from schemaPath lookup
    */
-  field?: Partial<Field>
+  field?: Partial<TField>
   /**
    * Pass the value this field will receive when rendering it on the server.
    * For richText, this helps provide initial state for sub-fields that are immediately rendered (like blocks)
@@ -44,7 +50,7 @@ export const _internal_renderFieldHandler: ServerFunction<
   // eslint-disable-next-line @typescript-eslint/require-await
 > = async ({ field: fieldArg, initialValue, path, req, schemaPath }) => {
   if (!req.user) {
-    throw new Error('Unauthorized')
+    throw new UnauthorizedError()
   }
 
   const [entityType, entitySlug, ...fieldPath] = schemaPath.split('.')

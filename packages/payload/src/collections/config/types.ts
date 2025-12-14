@@ -35,6 +35,8 @@ import type {
 } from '../../fields/config/types.js'
 import type { CollectionFoldersConfiguration } from '../../folders/types.js'
 import type {
+  CollectionAdminCustom,
+  CollectionCustom,
   CollectionSlug,
   JsonObject,
   RequestContext,
@@ -56,7 +58,11 @@ import type {
   IncomingCollectionVersions,
   SanitizedCollectionVersions,
 } from '../../versions/types.js'
-import type { AfterOperationArg, AfterOperationMap } from '../operations/utils.js'
+import type {
+  AfterOperationArg,
+  BeforeOperationArg,
+  OperationMap,
+} from '../operations/utilities/types.js'
 
 export type DataFromCollectionSlug<TSlug extends CollectionSlug> = TypedCollection[TSlug]
 
@@ -67,11 +73,23 @@ export type AuthOperationsFromCollectionSlug<TSlug extends CollectionSlug> =
 
 export type RequiredDataFromCollection<TData extends JsonObject> = MarkOptional<
   TData,
-  'createdAt' | 'deletedAt' | 'id' | 'sizes' | 'updatedAt'
+  'createdAt' | 'deletedAt' | 'id' | 'updatedAt'
 >
 
 export type RequiredDataFromCollectionSlug<TSlug extends CollectionSlug> =
   RequiredDataFromCollection<DataFromCollectionSlug<TSlug>>
+
+/**
+ * Helper type for draft data - makes all fields optional except auto-generated ones
+ * When creating a draft, required fields don't need to be provided as validation is skipped
+ */
+export type DraftDataFromCollection<TData extends JsonObject> = Partial<
+  MarkOptional<TData, 'createdAt' | 'deletedAt' | 'id' | 'updatedAt'>
+>
+
+export type DraftDataFromCollectionSlug<TSlug extends CollectionSlug> = DraftDataFromCollection<
+  DataFromCollectionSlug<TSlug>
+>
 
 export type HookOperationType =
   | 'autosave'
@@ -90,19 +108,13 @@ export type HookOperationType =
 
 type CreateOrUpdateOperation = Extract<HookOperationType, 'create' | 'update'>
 
-export type BeforeOperationHook = (args: {
-  args?: any
-  /**
-   *  The collection which this hook is being run on
-   */
-  collection: SanitizedCollectionConfig
-  context: RequestContext
-  /**
-   * Hook operation being performed
-   */
-  operation: HookOperationType
-  req: PayloadRequest
-}) => any
+export type BeforeOperationHook<TOperationGeneric extends CollectionSlug = string> = (
+  arg: BeforeOperationArg<TOperationGeneric>,
+) =>
+  | Parameters<OperationMap<TOperationGeneric>[keyof OperationMap<TOperationGeneric>]>[0]
+  | Promise<Parameters<OperationMap<TOperationGeneric>[keyof OperationMap<TOperationGeneric>]>[0]>
+  | Promise<void>
+  | void
 
 export type BeforeValidateHook<T extends TypeWithID = any> = (args: {
   /** The collection which this hook is being run on */
@@ -193,13 +205,9 @@ export type AfterDeleteHook<T extends TypeWithID = any> = (args: {
 export type AfterOperationHook<TOperationGeneric extends CollectionSlug = string> = (
   arg: AfterOperationArg<TOperationGeneric>,
 ) =>
-  | Awaited<
-      ReturnType<AfterOperationMap<TOperationGeneric>[keyof AfterOperationMap<TOperationGeneric>]>
-    >
+  | Awaited<ReturnType<OperationMap<TOperationGeneric>[keyof OperationMap<TOperationGeneric>]>>
   | Promise<
-      Awaited<
-        ReturnType<AfterOperationMap<TOperationGeneric>[keyof AfterOperationMap<TOperationGeneric>]>
-      >
+      Awaited<ReturnType<OperationMap<TOperationGeneric>[keyof OperationMap<TOperationGeneric>]>>
     >
 
 export type BeforeLoginHook<T extends TypeWithID = any> = (args: {
@@ -371,7 +379,7 @@ export type CollectionAdminOptions = {
     }
   }
   /** Extension point to add your custom data. Available in server and client. */
-  custom?: Record<string, any>
+  custom?: CollectionAdminCustom
   /**
    * Default columns to show in list view
    */
@@ -391,7 +399,7 @@ export type CollectionAdminOptions = {
    * If your cells require specific fields that may be unselected, such as within hooks, etc.,
    * use `forceSelect` in conjunction with this property.
    *
-   * @experimental This is an experimental feature and may change in the future. Use at your own discretion.
+   * @experimental This is an experimental feature and may change in the future. Use at your own risk.
    */
   enableListViewSelectAPI?: boolean
   enableRichTextLink?: boolean
@@ -428,7 +436,7 @@ export type CollectionAdminOptions = {
    * @description Enable grouping by a field in the list view.
    * Uses `payload.findDistinct` under the hood to populate the group-by options.
    *
-   * @experimental This option is currently in beta and may change in future releases. Use at your own discretion.
+   * @experimental This option is currently in beta and may change in future releases. Use at your own risk.
    */
   groupBy?: boolean
   /**
@@ -494,7 +502,7 @@ export type CollectionConfig<TSlug extends CollectionSlug = any> = {
    */
   auth?: boolean | IncomingAuthType
   /** Extension point to add your custom data. Server only. */
-  custom?: Record<string, any>
+  custom?: CollectionCustom
   /**
    * Used to override the default naming of the database table or collection with your using a function or string
    * @WARNING: If you change this property with existing data, you will need to handle the renaming of the table in your database or by using migrations
@@ -563,7 +571,7 @@ export type CollectionConfig<TSlug extends CollectionSlug = any> = {
     beforeChange?: BeforeChangeHook[]
     beforeDelete?: BeforeDeleteHook[]
     beforeLogin?: BeforeLoginHook[]
-    beforeOperation?: BeforeOperationHook[]
+    beforeOperation?: BeforeOperationHook<TSlug>[]
     beforeRead?: BeforeReadHook[]
     beforeValidate?: BeforeValidateHook[]
     /**
@@ -715,7 +723,7 @@ export interface SanitizedCollectionConfig
 
   slug: CollectionSlug
   upload: SanitizedUploadConfig
-  versions: SanitizedCollectionVersions
+  versions?: SanitizedCollectionVersions
 }
 
 export type Collection = {
@@ -737,6 +745,7 @@ export type BulkOperationResult<TSlug extends CollectionSlug, TSelect extends Se
   docs: TransformCollectionWithSelect<TSlug, TSelect>[]
   errors: {
     id: DataFromCollectionSlug<TSlug>['id']
+    isPublic: boolean
     message: string
   }[]
 }
@@ -745,9 +754,14 @@ export type AuthCollection = {
   config: SanitizedCollectionConfig
 }
 
+export type LocalizedMeta = {
+  [locale: string]: {
+    status: 'draft' | 'published'
+    updatedAt: string
+  }
+}
+
 export type TypeWithID = {
-  deletedAt?: null | string
-  docId?: any
   id: number | string
 }
 
