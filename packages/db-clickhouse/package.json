@@ -1,0 +1,73 @@
+{
+  "name": "@dotdo/db-clickhouse",
+  "version": "0.1.0",
+  "description": "ClickHouse database adapter for Payload CMS, optimized for Cloudflare Workers",
+  "keywords": [
+    "payload",
+    "payloadcms",
+    "clickhouse",
+    "database",
+    "adapter",
+    "cloudflare",
+    "workers",
+    "edge"
+  ],
+  "homepage": "https://github.com/dot-do/payload/tree/main/packages/db-clickhouse",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dot-do/payload.git",
+    "directory": "packages/db-clickhouse"
+  },
+  "license": "MIT",
+  "author": "dot.do",
+  "maintainers": [
+    {
+      "name": "dot.do",
+      "url": "https://dot.do"
+    }
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm build:types && pnpm build:swc",
+    "build:debug": "pnpm build",
+    "build:swc": "swc ./src -d ./dist --config-file .swcrc-build --strip-leading-paths",
+    "build:types": "tsc --emitDeclarationOnly --outDir dist",
+    "clean": "rimraf -g {dist,*.tsbuildinfo}",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "@clickhouse/client-web": "^1.8.1"
+  },
+  "devDependencies": {
+    "@payloadcms/eslint-config": "workspace:*",
+    "payload": "workspace:*"
+  },
+  "peerDependencies": {
+    "payload": "^3.0.0"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  }
+}

@@ -25,6 +25,7 @@
     "@aws-sdk/client-s3": "^3.614.0",
     "@azure/storage-blob": "^12.11.0",
     "@date-fns/tz": "1.2.0",
+    "@dotdo/db-clickhouse": "workspace:*",
     "@miniflare/d1": "2.14.4",
     "@miniflare/shared": "2.14.4",
     "@modelcontextprotocol/sdk": "^1.17.2",
