@@ -1,7 +1,9 @@
+import type { DurableObjectState, DurableObjectStorage } from '@cloudflare/workers-types'
 import type { ResultSet } from '@libsql/client'
 import type { BuildQueryJoinAliases, DrizzleAdapter, extendDrizzleTable } from '@payloadcms/drizzle'
 import type { BaseSQLiteAdapter, BaseSQLiteArgs } from '@payloadcms/drizzle/sqlite'
 import type { DrizzleConfig, Relation, Relations, SQL } from 'drizzle-orm'
+import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import type {
   AnySQLiteColumn,
@@ -11,7 +13,6 @@ import type {
 } from 'drizzle-orm/sqlite-core'
 import type { SQLiteRaw } from 'drizzle-orm/sqlite-core/query-builders/raw'
 import type { Payload, PayloadRequest } from 'payload'
-import type { DurableObjectState, DurableObjectStorage } from '@cloudflare/workers-types'
 
 type SQLiteSchema = {
   relations: Record<string, GenericRelation>
@@ -27,7 +28,6 @@ export type SQLiteSchemaHook = (args: SQLiteSchemaHookArgs) => Promise<SQLiteSch
 
 export type Args = {
   ctx: DurableObjectState
-  storage: DurableObjectStorage
   /**
    * Experimental. Enables read replicas support with the `first-primary` strategy.
    *
@@ -37,6 +37,7 @@ export type Args = {
    * ```readReplicas: 'first-primary'```
    */
   readReplicas?: 'first-primary'
+  storage: DurableObjectStorage
 } & BaseSQLiteArgs
 
 export type GenericColumns = {
@@ -103,10 +104,7 @@ type ResolveSchemaType<T> = 'schema' extends keyof T
   ? T['schema']
   : GeneratedDatabaseSchema['schemaUntyped']
 
-// Use the proper Durable SQLite database type from drizzle-orm
-// Note: We assume drizzle-orm exports DrizzleDurableDatabase from 'drizzle-orm/durable-sqlite'
-// If not available, fallback to LibSQLDatabase which has similar interface
-type Drizzle = { $client: DurableObjectStorage } & LibSQLDatabase<Record<string, any>>
+type Drizzle = { $client: DurableObjectStorage } & DrizzleSqliteDODatabase<Record<string, any>>
 
 export type SQLiteDOAdapter = {
   client: DurableObjectStorage

@@ -18,6 +18,7 @@ import {
   deleteVersions,
   destroy,
   find,
+  findDistinct,
   findGlobal,
   findGlobalVersions,
   findMigrationDir,
@@ -38,6 +39,7 @@ import {
   updateMany,
   updateOne,
   updateVersion,
+  upsert,
 } from '@payloadcms/drizzle'
 import {
   columnToCodeConverter,
@@ -46,7 +48,6 @@ import {
   createJSONQuery,
   defaultDrizzleSnapshot,
   deleteWhere,
-  dropDatabase,
   init,
   insert,
   requireDrizzleKit,
@@ -58,6 +59,7 @@ import { fileURLToPath } from 'url'
 import type { Args, SQLiteDOAdapter } from './types.js'
 
 import { connect } from './connect.js'
+import { dropDatabase } from './dropDatabase.js'
 import { execute } from './execute.js'
 
 const filename = fileURLToPath(import.meta.url)
@@ -91,9 +93,9 @@ export function sqliteDOAdapter(args: Args): DatabaseAdapterObj<SQLiteDOAdapter>
       allowIDOnCreate,
       autoIncrement: args.autoIncrement ?? false,
       beforeSchemaInit: args.beforeSchemaInit ?? [],
-      storage: args.storage,
-      ctx: args.ctx,
       blocksAsJSON: args.blocksAsJSON ?? false,
+      ctx: args.ctx,
+      storage: args.storage,
       // @ts-expect-error - vestiges of when tsconfig was not strict. Feel free to improve
       client: undefined,
       defaultDrizzleSnapshot,
@@ -166,6 +168,7 @@ export function sqliteDOAdapter(args: Args): DatabaseAdapterObj<SQLiteDOAdapter>
       destroy,
       dropDatabase,
       find,
+      findDistinct,
       findGlobal,
       findGlobalVersions,
       findOne,
@@ -191,7 +194,7 @@ export function sqliteDOAdapter(args: Args): DatabaseAdapterObj<SQLiteDOAdapter>
       updateGlobalVersion,
       updateOne,
       updateVersion,
-      upsert: updateOne,
+      upsert,
     })
   }
 

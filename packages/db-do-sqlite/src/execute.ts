@@ -1,67 +1,38 @@
 import type { Execute } from '@payloadcms/drizzle'
-import type { SQLiteRaw } from 'drizzle-orm/sqlite-core/query-builders/raw'
 
 import { sql } from 'drizzle-orm'
 
-interface DoSqliteMeta {
-  changed_db: boolean
-  changes: number
-  duration: number
-  last_row_id: number
-  rows_read: number
-  rows_written: number
-  /**
-   * True if-and-only-if the database instance that executed the query was the primary.
-   */
-  served_by_primary?: boolean
-  /**
-   * The region of the database instance that executed the query.
-   */
-  served_by_region?: string
-  size_after: number
-  timings?: {
-    /**
-     * The duration of the SQL query execution by the database instance. It doesn't include any network time.
-     */
-    sql_duration_ms: number
-  }
-}
-
-interface DoSqliteResponse {
-  error?: never
-  meta: DoSqliteMeta & Record<string, unknown>
-  success: true
-}
-
-type DoSqliteResult<T = unknown> = {
-  results: T[]
-} & DoSqliteResponse
-
-export const execute: Execute<any> = function execute({ db, drizzle, raw, sql: statement }) {
+/**
+ * Execute function for Durable Objects SQLite
+ *
+ * DO SQLite uses synchronous execution via storage.sql.exec()
+ * The Drizzle DO driver wraps this but uses different methods than D1
+ */
+export const execute: Execute<any> = function execute({ db, drizzle, raw, sql: statement }): any {
   const executeFrom: any = (db ?? drizzle)!
-  const mapToLibSql = (query: SQLiteRaw<DoSqliteResult<unknown>>): any => {
-    const execute = query.execute
-    query.execute = async () => {
-      const result: DoSqliteResult = await execute()
-      const resultLibSQL = {
-        columns: undefined,
-        columnTypes: undefined,
-        lastInsertRowid: BigInt(result.meta.last_row_id),
-        rows: result.results as any[],
-        rowsAffected: result.meta.rows_written,
-      }
 
-      return Object.assign(result, resultLibSQL)
-    }
+  // Create a result object compatible with what Payload expects
+  const createResult = (rows: any[]) => ({
+    columns: undefined,
+    columnTypes: undefined,
+    lastInsertRowid: BigInt(0),
+    rows,
+    rowsAffected: 0,
+  })
 
-    return query
-  }
-
+  // For DO SQLite, we need to use .all() to get results
+  // The Drizzle DO driver has synchronous operations but we wrap them in async for compatibility
   if (raw) {
-    const result = mapToLibSql(executeFrom.run(sql.raw(raw)))
-    return result
-  } else {
-    const result = mapToLibSql(executeFrom.run(statement))
-    return result
+    // Use sql.raw to create a raw SQL query and execute it
+    const query = sql.raw(raw)
+    // For Drizzle DO, .all() returns results synchronously
+    const rows = executeFrom.all(query)
+    return createResult(rows)
+  } else if (statement) {
+    // Execute the provided SQL statement
+    const rows = executeFrom.all(statement)
+    return createResult(rows)
   }
+
+  return createResult([])
 }
