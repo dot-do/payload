@@ -151,16 +151,8 @@ export async function cleanupGlobal({
   globalSlug: GlobalSlug
   payload: Payload
 }) {
-  if (isMongoose(payload)) {
-    await payload.db.updateGlobal({
-      slug: globalSlug,
-      data: {
-        title: {},
-        content: {},
-      },
-    })
-  } else if (isClickHouse(payload)) {
-    // ClickHouse stores globals as JSON data - reset to empty object
+  if (isMongoose(payload) || isClickHouse(payload)) {
+    // Mongoose and ClickHouse store globals as JSON data - reset to empty object
     await payload.db.updateGlobal({
       slug: globalSlug,
       data: {

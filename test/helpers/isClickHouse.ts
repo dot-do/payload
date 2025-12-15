@@ -1,5 +1,10 @@
 import type { Payload } from 'payload'
 
-export function isClickHouse(payload: Payload): boolean {
-  return payload.db.name === 'clickhouse'
+export const clickhouseList = ['clickhouse', 'do-clickhouse']
+
+export function isClickHouse(_payload?: Payload): boolean {
+  return (
+    _payload?.db?.name === 'clickhouse' ||
+    clickhouseList.includes(process.env.PAYLOAD_DATABASE || '')
+  )
 }
