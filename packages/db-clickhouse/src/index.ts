@@ -32,13 +32,18 @@ import {
   findGlobalVersions,
   findOne,
   findVersions,
+  getSearchQueue,
+  logEvent,
   queryDrafts,
+  queryEvents,
   rollbackTransaction,
+  search,
   syncToSearch,
   updateGlobal,
   updateGlobalVersion,
   updateMany,
   updateOne,
+  updateSearchStatus,
   updateVersion,
   upsert,
   upsertMany,
@@ -47,10 +52,20 @@ import {
 export type {
   ClickHouseAdapter,
   ClickHouseAdapterArgs,
+  EventRow,
   ExecuteArgs,
+  GetSearchQueueArgs,
+  LogEventArgs,
   MigrateDownArgs,
   MigrateUpArgs,
+  QueryEventsArgs,
+  QueryEventsResult,
+  SearchArgs,
+  SearchQueueItem,
+  SearchResult,
+  SearchResultDoc,
   SyncToSearchArgs,
+  UpdateSearchStatusArgs,
   UpsertManyArgs,
 } from './types.js'
 
@@ -157,7 +172,14 @@ export function clickhouseAdapter(args: ClickHouseAdapterArgs): DatabaseAdapterO
       upsertMany,
 
       // Search operations
+      getSearchQueue,
+      search,
       syncToSearch,
+      updateSearchStatus,
+
+      // Event logging
+      logEvent,
+      queryEvents,
 
       // Raw query execution
       execute,

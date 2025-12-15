@@ -88,10 +88,73 @@ export type ClickHouseAdapter = {
    * ```
    */
   execute: <T = unknown>(args: ExecuteArgs<T>) => Promise<T[]>
+  /**
+   * Get pending items from the search queue for external embedding generation
+   * @example
+   * ```ts
+   * const items = await payload.db.getSearchQueue({ limit: 50 })
+   * // items = [{ id, collection, docId, text }, ...]
+   * ```
+   */
+  getSearchQueue: (args?: GetSearchQueueArgs) => Promise<SearchQueueItem[]>
   /** ID type for document IDs */
   idType: 'text' | 'uuid'
+  /**
+   * Log an event to the events table
+   * @example
+   * ```ts
+   * const eventId = await payload.db.logEvent({
+   *   type: 'doc.create',
+   *   collection: 'posts',
+   *   docId: 'post-id',
+   *   userId: 'user-id',
+   *   input: { title: 'New Post' },
+   *   result: { success: true }
+   * })
+   * ```
+   */
+  logEvent: (args: LogEventArgs) => Promise<string>
   /** Namespace for this adapter instance */
   namespace: string
+  /**
+   * Query events from the events table
+   * @example
+   * ```ts
+   * const result = await payload.db.queryEvents({
+   *   where: { type: { equals: 'doc.create' } },
+   *   limit: 50,
+   *   page: 1,
+   *   sort: '-timestamp'
+   * })
+   * ```
+   */
+  queryEvents: (args?: QueryEventsArgs) => Promise<QueryEventsResult>
+  /**
+   * Perform full-text, vector, or hybrid search across the search table
+   * @example
+   * ```ts
+   * // Text-only search
+   * const results = await payload.db.search({
+   *   text: 'my search query',
+   *   limit: 10
+   * })
+   *
+   * // Vector similarity search
+   * const results = await payload.db.search({
+   *   vector: [0.1, 0.2, ...],
+   *   limit: 10
+   * })
+   *
+   * // Hybrid search
+   * const results = await payload.db.search({
+   *   text: 'my query',
+   *   vector: [0.1, 0.2, ...],
+   *   hybrid: { textWeight: 0.7, vectorWeight: 0.3 },
+   *   limit: 10
+   * })
+   * ```
+   */
+  search: (args?: SearchArgs) => Promise<SearchResult>
   /**
    * Sync a document to the search table for full-text search
    * @example
@@ -106,6 +169,18 @@ export type ClickHouseAdapter = {
   syncToSearch: (args: SyncToSearchArgs) => Promise<string>
   /** Table name */
   table: string
+  /**
+   * Update the status of a search item after embedding generation
+   * @example
+   * ```ts
+   * await payload.db.updateSearchStatus({
+   *   id: 'search-item-id',
+   *   status: 'ready',
+   *   embedding: [0.1, 0.2, 0.3, ...]
+   * })
+   * ```
+   */
+  updateSearchStatus: (args: UpdateSearchStatusArgs) => Promise<void>
   /**
    * Bulk upsert operation - insert multiple documents in a single batch
    * @example
@@ -136,9 +211,29 @@ declare module 'payload' {
      */
     execute: <T = unknown>(args: ExecuteArgs<T>) => Promise<T[]>
     /**
+     * Get pending items from the search queue for external embedding generation
+     */
+    getSearchQueue: (args?: GetSearchQueueArgs) => Promise<SearchQueueItem[]>
+    /**
+     * Log an event to the events table
+     */
+    logEvent: (args: LogEventArgs) => Promise<string>
+    /**
+     * Query events from the events table
+     */
+    queryEvents: (args?: QueryEventsArgs) => Promise<QueryEventsResult>
+    /**
+     * Perform full-text, vector, or hybrid search across the search table
+     */
+    search: (args?: SearchArgs) => Promise<SearchResult>
+    /**
      * Sync a document to the search table for full-text search
      */
     syncToSearch: (args: SyncToSearchArgs) => Promise<string>
+    /**
+     * Update the status of a search item after embedding generation
+     */
+    updateSearchStatus: (args: UpdateSearchStatusArgs) => Promise<void>
     /**
      * Bulk upsert operation - insert multiple documents in a single batch
      */
@@ -382,6 +477,95 @@ export interface SyncToSearchArgs {
   chunkIndex?: number
   collection: string
   doc: Record<string, unknown>
+}
+
+export interface SearchArgs {
+  hybrid?: {
+    textWeight: number
+    vectorWeight: number
+  }
+  limit?: number
+  text?: string
+  vector?: number[]
+  where?: Where
+}
+
+export interface SearchResultDoc {
+  chunkIndex: number
+  collection: string
+  docId: string
+  id: string
+  score: number
+  text: string
+}
+
+export interface SearchResult {
+  docs: SearchResultDoc[]
+}
+
+export interface GetSearchQueueArgs {
+  limit?: number
+}
+
+export interface SearchQueueItem {
+  collection: string
+  docId: string
+  id: string
+  text: string
+}
+
+export interface UpdateSearchStatusArgs {
+  embedding?: number[]
+  error?: string
+  id: string
+  status: 'failed' | 'ready'
+}
+
+// Event log types
+export interface LogEventArgs {
+  collection?: string
+  docId?: string
+  duration?: number
+  input?: Record<string, unknown>
+  ip?: string
+  result?: Record<string, unknown>
+  sessionId?: string
+  type: string
+  userId?: string
+}
+
+export interface QueryEventsArgs {
+  limit?: number
+  page?: number
+  sort?: string
+  where?: Where
+}
+
+export interface EventRow {
+  collection: null | string
+  docId: null | string
+  duration: number
+  id: string
+  input: Record<string, unknown>
+  ip: null | string
+  ns: string
+  result: Record<string, unknown>
+  sessionId: null | string
+  timestamp: string
+  type: string
+  userId: null | string
+}
+
+export interface QueryEventsResult {
+  docs: EventRow[]
+  hasNextPage: boolean
+  hasPrevPage: boolean
+  limit: number
+  nextPage: null | number
+  page: number
+  prevPage: null | number
+  totalDocs: number
+  totalPages: number
 }
 
 // Transaction types
