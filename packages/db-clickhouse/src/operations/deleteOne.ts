@@ -5,8 +5,14 @@ import type { ClickHouseAdapter, DataRow } from '../types.js'
 
 import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { generateVersion } from '../utilities/generateId.js'
+import { softDeleteRelationships } from '../utilities/relationships.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
-import { parseDataRow, parseDateTime64ToMs, rowToDocument } from '../utilities/transform.js'
+import {
+  hasCustomNumericID,
+  parseDataRow,
+  parseDateTime64ToMs,
+  rowToDocument,
+} from '../utilities/transform.js'
 
 export const deleteOne: DeleteOne = async function deleteOne(
   this: ClickHouseAdapter,
@@ -19,6 +25,9 @@ export const deleteOne: DeleteOne = async function deleteOne(
   if (!this.clickhouse) {
     throw new Error('ClickHouse client not connected')
   }
+
+  const collection = this.payload.collections[collectionSlug]
+  const numericID = collection ? hasCustomNumericID(collection.config.fields) : false
 
   const qb = new QueryBuilder()
   // Build base WHERE for inner query (only ns, type)
@@ -111,9 +120,17 @@ export const deleteOne: DeleteOne = async function deleteOne(
     query_params: deleteParams,
   })
 
+  // Soft-delete all relationships for this document
+  await softDeleteRelationships(this.clickhouse, this.table, {
+    fromId: existing.id,
+    fromType: collectionSlug,
+    ns: this.namespace,
+    v: deleteV,
+  })
+
   // Note: ClickHouse provides eventual consistency via ReplacingMergeTree.
   // The soft-delete row will be merged asynchronously. For immediate consistency
   // in tests, use PAYLOAD_DROP_DATABASE=true which clears data at connect time.
 
-  return rowToDocument<Document>(existing)
+  return rowToDocument<Document>(existing, numericID)
 }
