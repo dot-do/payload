@@ -1,65 +1,12 @@
-import type { FindGlobal, FindGlobalArgs, Where } from 'payload'
+import type { FindGlobal, FindGlobalArgs } from 'payload'
 
-import type { QueryParams } from '../queries/QueryBuilder.js'
 import type { ClickHouseAdapter, DataRow } from '../types.js'
 
+import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
 import { parseDataRow, rowToDocument } from '../utilities/transform.js'
 
 const GLOBALS_TYPE = '_globals'
-
-/**
- * Check if a document matches a where clause (for access control)
- * This is a simple implementation for common access control patterns
- */
-function matchesWhere(data: Record<string, unknown>, where: Where): boolean {
-  if (!where || Object.keys(where).length === 0) {
-    return true
-  }
-
-  for (const [key, condition] of Object.entries(where)) {
-    // Handle AND conditions
-    if (key === 'and' && Array.isArray(condition)) {
-      if (!condition.every((c) => matchesWhere(data, c))) {
-        return false
-      }
-      continue
-    }
-
-    // Handle OR conditions
-    if (key === 'or' && Array.isArray(condition)) {
-      if (!condition.some((c) => matchesWhere(data, c))) {
-        return false
-      }
-      continue
-    }
-
-    // Handle field conditions
-    const fieldValue = data[key]
-    if (typeof condition === 'object' && condition !== null) {
-      const conditionObj = condition as Record<string, unknown>
-
-      if ('equals' in conditionObj) {
-        if (fieldValue !== conditionObj.equals) {
-          return false
-        }
-      }
-      if ('not_equals' in conditionObj) {
-        if (fieldValue === conditionObj.not_equals) {
-          return false
-        }
-      }
-      if ('exists' in conditionObj) {
-        const exists = fieldValue !== undefined && fieldValue !== null
-        if (conditionObj.exists !== exists) {
-          return false
-        }
-      }
-    }
-  }
-
-  return true
-}
 
 export const findGlobal: FindGlobal = async function findGlobal<
   T extends Record<string, unknown> = Record<string, unknown>,
@@ -72,13 +19,19 @@ export const findGlobal: FindGlobal = async function findGlobal<
     throw new Error('ClickHouse client not connected')
   }
 
-  const params: QueryParams = {
-    id: slug,
-    type: GLOBALS_TYPE,
-    ns: this.namespace,
-  }
+  const qb = new QueryBuilder()
 
-  // Use window function, filter deletedAt after
+  // Build base WHERE for this specific global
+  qb.addNamedParam('ns', this.namespace)
+  qb.addNamedParam('type', GLOBALS_TYPE)
+  qb.addNamedParam('id', slug)
+
+  // Add access control conditions if provided
+  const accessControlWhere = qb.buildWhereClause(where)
+
+  const params = qb.getParams()
+
+  // Use window function to get latest version, then filter by access control and deletedAt
   const query = `
     SELECT * EXCEPT(_rn)
     FROM (
@@ -88,7 +41,7 @@ export const findGlobal: FindGlobal = async function findGlobal<
         AND type = {type:String}
         AND id = {id:String}
     )
-    WHERE _rn = 1 AND deletedAt IS NULL
+    WHERE _rn = 1 AND deletedAt IS NULL${accessControlWhere ? ` AND (${accessControlWhere})` : ''}
     LIMIT 1
   `
 
@@ -101,8 +54,9 @@ export const findGlobal: FindGlobal = async function findGlobal<
   const rows = await result.json<DataRow>()
 
   if (rows.length === 0) {
-    // No document exists - return empty object if there's a where clause (access control)
-    // Otherwise return base object
+    // No document found - either doesn't exist or access denied
+    // Return empty object if there's a where clause (access control denied)
+    // Otherwise return base object (global doesn't exist yet)
     if (where && Object.keys(where).length > 0) {
       return {} as T
     }
@@ -111,15 +65,6 @@ export const findGlobal: FindGlobal = async function findGlobal<
 
   const parsedRow = parseDataRow(rows[0]!)
   const doc = rowToDocument<{ id: string } & T>(parsedRow)
-  const fullDoc = { ...doc, globalType: slug }
 
-  // If there's a where clause (access control), check if document matches
-  if (where && Object.keys(where).length > 0) {
-    const docData = parsedRow.data
-    if (!matchesWhere(docData, where)) {
-      return {} as T
-    }
-  }
-
-  return fullDoc as unknown as T
+  return { ...doc, globalType: slug } as unknown as T
 }
