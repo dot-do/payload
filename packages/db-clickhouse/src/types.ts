@@ -92,6 +92,18 @@ export type ClickHouseAdapter = {
   idType: 'text' | 'uuid'
   /** Namespace for this adapter instance */
   namespace: string
+  /**
+   * Sync a document to the search table for full-text search
+   * @example
+   * ```ts
+   * const searchId = await payload.db.syncToSearch({
+   *   collection: 'posts',
+   *   doc: { id: 'doc-id', title: 'My Post', content: 'Content...' },
+   *   chunkIndex: 0
+   * })
+   * ```
+   */
+  syncToSearch: (args: SyncToSearchArgs) => Promise<string>
   /** Table name */
   table: string
   /**
@@ -123,6 +135,10 @@ declare module 'payload' {
      * Execute a raw SQL query against ClickHouse
      */
     execute: <T = unknown>(args: ExecuteArgs<T>) => Promise<T[]>
+    /**
+     * Sync a document to the search table for full-text search
+     */
+    syncToSearch: (args: SyncToSearchArgs) => Promise<string>
     /**
      * Bulk upsert operation - insert multiple documents in a single batch
      */
@@ -359,6 +375,18 @@ export interface UpdateGlobalVersionArgs {
 
 export interface CountGlobalVersionsArgs extends GlobalVersionArgs {
   where?: WhereCondition
+}
+
+// Search sync types
+export interface SyncToSearchArgs {
+  chunkIndex?: number
+  collection: string
+  doc: Record<string, unknown>
+}
+
+// Transaction types
+export interface BeginTransactionArgs {
+  timeout?: null | number
 }
 
 // Migration types

@@ -122,11 +122,35 @@ CREATE TABLE IF NOT EXISTS search (
     errorMessage Nullable(String),
     createdAt DateTime64(3),
     updatedAt DateTime64(3),
-    INDEX text_idx text TYPE tokenbf_v1(10240, 3, 0) GRANULARITY 4,
-    INDEX vec_idx embedding TYPE vector_similarity('hnsw', 'cosineDistance')
+    INDEX text_idx text TYPE tokenbf_v1(10240, 3, 0) GRANULARITY 4
 ) ENGINE = ReplacingMergeTree(updatedAt)
 PARTITION BY ns
 ORDER BY (ns, collection, docId, chunkIndex)
+`
+}
+
+/**
+ * Generate SQL to create the events table if it doesn't exist
+ * Events table is used for tracking system events and analytics
+ */
+function getCreateEventsTableSQL(): string {
+  return `
+CREATE TABLE IF NOT EXISTS events (
+    id String,
+    ns String,
+    timestamp DateTime64(3),
+    type String,
+    collection Nullable(String),
+    docId Nullable(String),
+    userId Nullable(String),
+    sessionId Nullable(String),
+    ip Nullable(String),
+    duration UInt32 DEFAULT 0,
+    input JSON,
+    result JSON
+) ENGINE = MergeTree
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (ns, timestamp, type)
 `
 }
 
@@ -214,6 +238,11 @@ export const connect: Connect = async function connect(this: ClickHouseAdapter):
     query: getCreateSearchTableSQL(this.embeddingDimensions),
   })
 
+  // Create the events table if it doesn't exist
+  await this.clickhouse.command({
+    query: getCreateEventsTableSQL(),
+  })
+
   // Delete data for current namespace if PAYLOAD_DROP_DATABASE is set (for tests)
   if (process.env.PAYLOAD_DROP_DATABASE === 'true') {
     this.payload.logger.info(`---- DROPPING DATA FOR NAMESPACE ${this.namespace} ----`)
@@ -233,6 +262,10 @@ export const connect: Connect = async function connect(this: ClickHouseAdapter):
     })
     await this.clickhouse.command({
       query: `DELETE FROM search WHERE ns = {ns:String} SETTINGS mutations_sync = 2`,
+      query_params: { ns: this.namespace },
+    })
+    await this.clickhouse.command({
+      query: `DELETE FROM events WHERE ns = {ns:String} SETTINGS mutations_sync = 2`,
       query_params: { ns: this.namespace },
     })
     this.payload.logger.info('---- DROPPED NAMESPACE DATA ----')

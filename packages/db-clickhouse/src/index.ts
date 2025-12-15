@@ -13,6 +13,8 @@ import { init } from './init.js'
 import { migrate } from './migrate.js'
 import { migrateFresh } from './migrateFresh.js'
 import {
+  beginTransaction,
+  commitTransaction,
   count,
   countGlobalVersions,
   countVersions,
@@ -31,6 +33,8 @@ import {
   findOne,
   findVersions,
   queryDrafts,
+  rollbackTransaction,
+  syncToSearch,
   updateGlobal,
   updateGlobalVersion,
   updateMany,
@@ -46,6 +50,7 @@ export type {
   ExecuteArgs,
   MigrateDownArgs,
   MigrateUpArgs,
+  SyncToSearchArgs,
   UpsertManyArgs,
 } from './types.js'
 
@@ -151,15 +156,16 @@ export function clickhouseAdapter(args: ClickHouseAdapterArgs): DatabaseAdapterO
       upsert,
       upsertMany,
 
+      // Search operations
+      syncToSearch,
+
       // Raw query execution
       execute,
 
-      // Transaction stubs - ClickHouse is an OLAP database and does not support ACID transactions
-      // Operations are eventually consistent via ReplacingMergeTree
-      // We implement no-op stubs so Payload operations that use transactions can still work
-      beginTransaction: () => Promise.resolve(null),
-      commitTransaction: async () => {},
-      rollbackTransaction: async () => {},
+      // Transaction operations - uses actions table for transaction staging
+      beginTransaction,
+      commitTransaction,
+      rollbackTransaction,
 
       // Migration support
       createMigration,
