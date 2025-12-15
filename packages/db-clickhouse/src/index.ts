@@ -1,12 +1,17 @@
 import type { DatabaseAdapterObj, Payload } from 'payload'
 
+import path from 'path'
 import { createDatabaseAdapter } from 'payload'
+import { fileURLToPath } from 'url'
 
 import type { ClickHouseAdapter, ClickHouseAdapterArgs } from './types.js'
 
 import { connect } from './connect.js'
+import { createMigration } from './createMigration.js'
 import { destroy } from './destroy.js'
 import { init } from './init.js'
+import { migrate } from './migrate.js'
+import { migrateFresh } from './migrateFresh.js'
 import {
   count,
   countGlobalVersions,
@@ -39,6 +44,8 @@ export type {
   ClickHouseAdapter,
   ClickHouseAdapterArgs,
   ExecuteArgs,
+  MigrateDownArgs,
+  MigrateUpArgs,
   UpsertManyArgs,
 } from './types.js'
 
@@ -140,30 +147,22 @@ export function clickhouseAdapter(args: ClickHouseAdapterArgs): DatabaseAdapterO
       commitTransaction: async () => {},
       rollbackTransaction: async () => {},
 
-      // Migration stubs (no migrations needed - schemaless)
-      // ClickHouse uses a schemaless JSON approach, so migrations are not needed
-      createMigration: async () => {},
-      migrate: async () => {},
-      async migrateFresh(this: ClickHouseAdapter) {
-        // Delete all data for the current namespace only (lightweight delete)
-        if (this.clickhouse) {
-          await this.clickhouse.command({
-            query: `DELETE FROM ${this.table} WHERE ns = {ns:String}`,
-            query_params: { ns: this.namespace },
-          })
-        }
-      },
+      // Migration support
+      createMigration,
+      migrate,
+      migrateFresh,
       async migrateRefresh(this: ClickHouseAdapter) {
-        // Same as migrateFresh for ClickHouse
+        // Delete all data and re-run migrations
         if (this.clickhouse) {
           await this.clickhouse.command({
             query: `DELETE FROM ${this.table} WHERE ns = {ns:String}`,
             query_params: { ns: this.namespace },
           })
         }
+        await migrate.call(this)
       },
       async migrateReset(this: ClickHouseAdapter) {
-        // Same as migrateFresh for ClickHouse
+        // Delete all data for the current namespace
         if (this.clickhouse) {
           await this.clickhouse.command({
             query: `DELETE FROM ${this.table} WHERE ns = {ns:String}`,
@@ -172,7 +171,7 @@ export function clickhouseAdapter(args: ClickHouseAdapterArgs): DatabaseAdapterO
         }
       },
       migrateStatus: async () => {},
-      migrationDir: '',
+      migrationDir: path.resolve(process.cwd(), 'src/migrations'),
     })
   }
 

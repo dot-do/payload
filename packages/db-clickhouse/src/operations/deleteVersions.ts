@@ -9,40 +9,18 @@ import { assertValidSlug } from '../utilities/sanitize.js'
 import { parseDataRow, parseDateTime64ToMs } from '../utilities/transform.js'
 
 /**
- * Recursively map 'parent' field to 'id' in where clause.
- * In ClickHouse-native versioning, 'parent' is the document id.
+ * Get the versions collection type name.
+ * Payload stores versions with the naming convention: _${collection}_versions
  */
-function mapParentToId(where: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-
-  for (const [key, value] of Object.entries(where)) {
-    if (key === 'and' && Array.isArray(value)) {
-      result.and = value.map((item) =>
-        typeof item === 'object' && item !== null
-          ? mapParentToId(item as Record<string, unknown>)
-          : item,
-      )
-    } else if (key === 'or' && Array.isArray(value)) {
-      result.or = value.map((item) =>
-        typeof item === 'object' && item !== null
-          ? mapParentToId(item as Record<string, unknown>)
-          : item,
-      )
-    } else if (key === 'parent') {
-      result.id = value
-    } else {
-      result[key] = value
-    }
-  }
-
-  return result
+function getVersionsType(collectionSlug: string): string {
+  return `_${collectionSlug}_versions`
 }
 
 /**
  * Delete versions of documents (soft delete).
  *
- * ClickHouse-native versioning: versions are rows with the same (ns, type, id)
- * but different `v` timestamps. Soft delete by inserting with deletedAt set.
+ * Versions are stored with type = `_${collection}_versions`.
+ * Soft delete by inserting with deletedAt set and same v.
  */
 export const deleteVersions: DeleteVersions = async function deleteVersions(
   this: ClickHouseAdapter,
@@ -58,14 +36,19 @@ export const deleteVersions: DeleteVersions = async function deleteVersions(
     throw new Error('ClickHouse client not connected')
   }
 
+  if (!collectionSlug) {
+    throw new Error('Collection slug is required for deleteVersions')
+  }
+
+  // Use versions type: _${collection}_versions
+  const versionsType = getVersionsType(collectionSlug)
   const qb = new QueryBuilder()
   const nsParam = qb.addNamedParam('ns', this.namespace)
-  const typeParam = qb.addNamedParam('type', collectionSlug)
+  const typeParam = qb.addNamedParam('type', versionsType)
   const baseWhere = `ns = ${nsParam} AND type = ${typeParam} AND deletedAt IS NULL`
 
-  // Map 'parent' to 'id' in where clause
-  const mappedWhere = where ? mapParentToId(where as Record<string, unknown>) : {}
-  const additionalWhere = qb.buildWhereClause(mappedWhere as any)
+  // Keep where as-is since parent is stored in the data JSON
+  const additionalWhere = qb.buildWhereClause((where || {}) as any)
   const whereClause = additionalWhere ? `${baseWhere} AND (${additionalWhere})` : baseWhere
   const findParams = qb.getParams()
 

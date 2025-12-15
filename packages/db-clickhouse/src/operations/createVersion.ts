@@ -8,10 +8,18 @@ import { assertValidSlug } from '../utilities/sanitize.js'
 import { extractTitle } from '../utilities/transform.js'
 
 /**
+ * Get the versions collection type name.
+ * Payload stores versions with the naming convention: _${collection}_versions
+ */
+function getVersionsType(collectionSlug: string): string {
+  return `_${collectionSlug}_versions`
+}
+
+/**
  * Create a new version of a document.
  *
- * ClickHouse-native versioning: versions are stored as rows with the same (ns, type, id)
- * but different `v` timestamps. The `v` timestamp serves as the version identifier.
+ * Versions are stored with type = `_${collection}_versions` to match Payload's versioning convention.
+ * Each version gets a unique `v` timestamp that serves as its identifier.
  */
 export const createVersion: CreateVersion = async function createVersion<
   T extends JsonObject = JsonObject,
@@ -34,13 +42,18 @@ export const createVersion: CreateVersion = async function createVersion<
   const title = extractTitle(versionData as Record<string, unknown>, titleField, String(parent))
   const userId = req?.user?.id ? String(req.user.id) : null
 
-  // Store autosave flag in data if needed
-  const versionDoc = autosave ? { ...versionData, _autosave: true } : versionData
+  // Build version document with parent reference and optional autosave flag
+  const versionDoc = {
+    parent: String(parent),
+    version: versionData,
+    ...(autosave && { _autosave: true }),
+  }
 
-  // Use parent as the document id - versions share the same id with different v
+  // Versions are stored with type = _${collection}_versions
+  const versionType = getVersionsType(collectionSlug)
   const params: QueryParams = {
-    id: String(parent),
-    type: collectionSlug,
+    id: String(now), // Version ID is the v timestamp
+    type: versionType,
     createdAt: now,
     data: JSON.stringify(versionDoc),
     ns: this.namespace,

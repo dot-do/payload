@@ -5,24 +5,27 @@ import type { ClickHouseAdapter, DataRow } from '../types.js'
 
 import { generateVersion } from '../utilities/generateId.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
-import {
-  extractTitle,
-  parseDataRow,
-  parseDateTime64ToMs,
-  toISOString,
-} from '../utilities/transform.js'
+import { extractTitle, parseDataRow, parseDateTime64ToMs } from '../utilities/transform.js'
+
+/**
+ * Get the versions collection type name.
+ * Payload stores versions with the naming convention: _${collection}_versions
+ */
+function getVersionsType(collectionSlug: string): string {
+  return `_${collectionSlug}_versions`
+}
 
 /**
  * Update a version of a document.
  *
- * ClickHouse-native versioning: the version id IS the `v` timestamp.
- * We find the row by (ns, type, parent_id, v) and insert a new row with updated data.
+ * Versions are stored with type = `_${collection}_versions`.
+ * The version id is the row id (v timestamp as string).
  */
 export const updateVersion: UpdateVersion = async function updateVersion<
   T extends JsonObject = JsonObject,
 >(this: ClickHouseAdapter, args: UpdateVersionArgs<T>): Promise<TypeWithVersion<T>> {
   const { collection: collectionSlug, req, versionData } = args
-  // In ClickHouse-native versioning, the version "id" is the v timestamp
+  // Version ID is the row id (v timestamp as string)
   const versionId = 'id' in args ? args.id : undefined
 
   assertValidSlug(collectionSlug, 'collection')
@@ -36,31 +39,25 @@ export const updateVersion: UpdateVersion = async function updateVersion<
     throw new Error(`Collection '${collectionSlug}' not found`)
   }
 
-  // Parse the version id to get the v timestamp
-  const vTimestamp = versionId ? parseInt(String(versionId), 10) : undefined
+  // Use versions type: _${collection}_versions
+  const versionsType = getVersionsType(collectionSlug)
 
   const findParams: QueryParams = {
-    type: collectionSlug,
+    type: versionsType,
     ns: this.namespace,
   }
 
   let whereClause = `ns = {ns:String} AND type = {type:String} AND deletedAt IS NULL`
 
-  // Filter by v timestamp if provided
-  if (vTimestamp && !isNaN(vTimestamp)) {
-    findParams.vTimestamp = vTimestamp
-    whereClause += ` AND v = fromUnixTimestamp64Milli({vTimestamp:Int64})`
-  }
-
-  // If parent is provided, filter by document id
-  if (versionData.parent) {
-    findParams.docId = String(versionData.parent)
-    whereClause += ` AND id = {docId:String}`
+  // Filter by version id if provided
+  if (versionId) {
+    findParams.versionId = String(versionId)
+    whereClause += ` AND id = {versionId:String}`
   }
 
   const findQuery = `
     SELECT *
-    FROM ${this.table}
+    FROM ${this.table} FINAL
     WHERE ${whereClause}
     LIMIT 1
   `
@@ -78,32 +75,53 @@ export const updateVersion: UpdateVersion = async function updateVersion<
   }
 
   const existing = parseDataRow(existingRows[0]!)
-  const existingData = existing.data
+  const existingData = existing.data as {
+    _autosave?: boolean
+    parent: string
+    version: Record<string, unknown>
+  }
 
   const now = generateVersion()
   const titleField = collection.config.admin?.useAsTitle
-  const versionContent = versionData.version || {}
-  const title = extractTitle(versionContent as Record<string, unknown>, titleField, existing.id)
   const userId = req?.user?.id ? String(req.user.id) : null
 
-  // Merge existing data with new version content
-  const mergedDoc = {
-    ...existingData,
-    ...versionContent,
-    _autosave: existingData._autosave,
+  // Merge existing version content with new version content
+  const mergedVersionContent = {
+    ...existingData.version,
+    ...(versionData as Record<string, unknown>),
+  }
+  // Remove internal fields that shouldn't be in version content
+  delete (mergedVersionContent as any).createdAt
+  delete (mergedVersionContent as any).updatedAt
+
+  const title = extractTitle(mergedVersionContent, titleField, existingData.parent)
+
+  // Build updated version document
+  const updatedVersionDoc = {
+    parent: existingData.parent,
+    version: mergedVersionContent,
+    ...(existingData._autosave && { _autosave: true }),
   }
 
-  // Insert updated version with same v (to replace the existing row)
+  // Keep the same v (timestamp) to update in place via ReplacingMergeTree
   const existingV = existingRows[0]!.v ? parseDateTime64ToMs(existingRows[0]!.v) : now
 
+  // Respect user-provided timestamps in the INSERT
+  const createdAtMs = versionData.createdAt
+    ? new Date(versionData.createdAt).getTime()
+    : parseDateTime64ToMs(existing.createdAt)
+  const updatedAtMs = versionData.updatedAt
+    ? new Date(versionData.updatedAt).getTime()
+    : now
+
   const insertParams: QueryParams = {
-    id: existing.id,
-    type: collectionSlug,
-    createdAtMs: parseDateTime64ToMs(existing.createdAt),
-    data: JSON.stringify(mergedDoc),
+    id: existing.id, // Keep the same version id
+    type: versionsType,
+    createdAtMs,
+    data: JSON.stringify(updatedVersionDoc),
     ns: existing.ns,
     title,
-    updatedAt: now,
+    updatedAt: updatedAtMs,
     v: existingV, // Keep the same v to update in place
   }
 
@@ -137,22 +155,11 @@ export const updateVersion: UpdateVersion = async function updateVersion<
     query_params: insertParams,
   })
 
-  const { _autosave, ...cleanVersionData } = mergedDoc
-
-  // Respect user-provided timestamps, ensuring ISO format
-  // Use toISOString for ClickHouse format conversion
-  const createdAtValue = versionData.createdAt
-    ? new Date(versionData.createdAt).toISOString()
-    : toISOString(existing.createdAt) || new Date(now).toISOString()
-  const updatedAtValue = versionData.updatedAt
-    ? new Date(versionData.updatedAt).toISOString()
-    : new Date(now).toISOString()
-
   return {
-    id: String(existingV),
-    createdAt: createdAtValue,
-    parent: existing.id,
-    updatedAt: updatedAtValue,
-    version: cleanVersionData as T,
+    id: existing.id, // Version ID
+    createdAt: new Date(createdAtMs).toISOString(),
+    parent: existingData.parent,
+    updatedAt: new Date(updatedAtMs).toISOString(),
+    version: mergedVersionContent as T,
   }
 }

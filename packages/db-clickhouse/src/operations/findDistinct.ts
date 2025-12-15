@@ -3,7 +3,7 @@ import type { FindDistinct, PaginatedDistinctDocs } from 'payload'
 import type { ClickHouseAdapter } from '../types.js'
 
 import { buildOrderBy } from '../queries/buildSort.js'
-import { combineWhere, QueryBuilder } from '../queries/QueryBuilder.js'
+import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
 
 /**
@@ -51,9 +51,10 @@ export const findDistinct: FindDistinct = async function findDistinct(
   }
 
   const qb = new QueryBuilder()
+  // Build base WHERE for inner query (only ns, type)
+  // Data field filters must be applied AFTER window function
   const baseWhereInner = qb.buildBaseWhereNoDeleted(this.namespace, collectionSlug)
-  const additionalWhere = qb.buildWhereClause(where as any)
-  const innerWhereClause = combineWhere(baseWhereInner, additionalWhere)
+  const dataWhere = qb.buildWhereClause(where as any)
 
   const fieldPath = getFieldPath(field)
   // Cast JSON fields to String to avoid "Dynamic type not allowed in ORDER BY" error
@@ -84,14 +85,18 @@ export const findDistinct: FindDistinct = async function findDistinct(
   }
 
   // Use window function, filter deletedAt after
+  // Apply data filters AFTER window function to ensure we filter on latest version
+  const outerWhere = dataWhere
+    ? `_rn = 1 AND deletedAt IS NULL AND (${dataWhere})`
+    : '_rn = 1 AND deletedAt IS NULL'
   const query = `
     SELECT DISTINCT ${fieldExpr} as value
     FROM (
       SELECT *, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
       FROM ${this.table}
-      WHERE ${innerWhereClause}
+      WHERE ${baseWhereInner}
     )
-    WHERE _rn = 1 AND deletedAt IS NULL
+    WHERE ${outerWhere}
     ${orderByClause}
     ${limitParam && offsetParam ? `LIMIT ${limitParam} OFFSET ${offsetParam}` : ''}
   `
@@ -111,9 +116,9 @@ export const findDistinct: FindDistinct = async function findDistinct(
     FROM (
       SELECT *, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
       FROM ${this.table}
-      WHERE ${innerWhereClause}
+      WHERE ${baseWhereInner}
     )
-    WHERE _rn = 1 AND deletedAt IS NULL
+    WHERE ${outerWhere}
   `
 
   const countResult = await this.clickhouse.query({

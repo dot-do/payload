@@ -216,9 +216,13 @@ export class QueryBuilder {
         if (value === null || value === undefined) {
           return `${path} IS NOT NULL`
         }
-        // Cast JSON fields to String for string comparisons only
-        if (path.startsWith('data.') && typeof value === 'string') {
-          return `toString(${path}) != ${this.addParam(value)}`
+        // For JSON fields, NULL (missing field) should be considered "not equal" to any value
+        // SQL's NULL != value returns NULL (falsy), so we need: (field IS NULL OR field != value)
+        if (path.startsWith('data.')) {
+          if (typeof value === 'string') {
+            return `(${path} IS NULL OR toString(${path}) != ${this.addParam(value)})`
+          }
+          return `(${path} IS NULL OR ${path} != ${this.addParam(value)})`
         }
         return `${path} != ${this.addParam(value)}`
 

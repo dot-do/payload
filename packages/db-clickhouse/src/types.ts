@@ -25,10 +25,9 @@ export interface ExecuteArgs<T = unknown> {
 export interface UpsertManyArgs {
   /** Collection slug */
   collection: CollectionSlug
-  /** Array of documents to upsert, each with data and where clause */
+  /** Array of documents to upsert. Include `id` in data to update existing, omit for new. */
   docs: Array<{
     data: Record<string, unknown>
-    where: Where
   }>
   /** Request context */
   req?: PayloadRequest
@@ -88,14 +87,14 @@ export type ClickHouseAdapter = {
   /** Table name */
   table: string
   /**
-   * Bulk upsert operation - create or update multiple documents
+   * Bulk upsert operation - insert multiple documents in a single batch
    * @example
    * ```ts
    * const docs = await payload.db.upsertMany({
    *   collection: 'posts',
    *   docs: [
-   *     { data: { title: 'Post 1' }, where: { slug: { equals: 'post-1' } } },
-   *     { data: { title: 'Post 2' }, where: { slug: { equals: 'post-2' } } },
+   *     { data: { title: 'Post 1', slug: 'post-1' } },
+   *     { data: { id: 'existing-id', title: 'Updated Post' } },
    *   ]
    * })
    * ```
@@ -117,7 +116,7 @@ declare module 'payload' {
      */
     execute: <T = unknown>(args: ExecuteArgs<T>) => Promise<T[]>
     /**
-     * Bulk upsert operation - create or update multiple documents
+     * Bulk upsert operation - insert multiple documents in a single batch
      */
     upsertMany: (args: UpsertManyArgs) => Promise<Document[]>
   }
@@ -339,4 +338,15 @@ export interface UpdateGlobalVersionArgs {
 
 export interface CountGlobalVersionsArgs extends GlobalVersionArgs {
   where?: WhereCondition
+}
+
+// Migration types
+export interface MigrateUpArgs {
+  payload: Payload
+  req?: PayloadRequest
+}
+
+export interface MigrateDownArgs {
+  payload: Payload
+  req?: PayloadRequest
 }

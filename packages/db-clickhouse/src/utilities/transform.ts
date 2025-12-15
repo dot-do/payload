@@ -1,6 +1,62 @@
-import type { TypeWithID } from 'payload'
+import type { CollectionConfig, Field, FlattenedField, SanitizedConfig, TypeWithID } from 'payload'
+
+import { flattenAllFields } from 'payload'
+import { fieldAffectsData, fieldShouldBeLocalized } from 'payload/shared'
 
 import type { DataRow, PaginatedResult } from '../types.js'
+
+/**
+ * Sensitive fields that should always be stripped from document data
+ */
+const SENSITIVE_FIELDS = ['password', 'confirm-password']
+
+/**
+ * Strip sensitive fields from document data
+ * Similar to MongoDB's stripFields function in transform.ts
+ */
+export function stripSensitiveFields(data: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...data }
+  for (const field of SENSITIVE_FIELDS) {
+    delete result[field]
+  }
+  return result
+}
+
+/**
+ * Strip fields that are not defined in the collection schema
+ * Used during read operations to ensure only valid fields are returned
+ */
+export function stripUndefinedFields(
+  data: Record<string, unknown>,
+  config: SanitizedConfig,
+  fields: Field[],
+  reservedKeys: string[] = ['id', 'globalType'],
+): Record<string, unknown> {
+  const flattenedFields = flattenAllFields({ cache: true, fields })
+  const result = { ...data }
+
+  // Remove keys that are not in the field definitions and not reserved
+  for (const key in result) {
+    if (
+      !flattenedFields.some((field) => field.name === key) &&
+      !reservedKeys.includes(key) &&
+      !SENSITIVE_FIELDS.includes(key)
+    ) {
+      // Keep the field if it's a valid field
+      continue
+    }
+    if (SENSITIVE_FIELDS.includes(key)) {
+      delete result[key]
+    }
+  }
+
+  // Always strip sensitive fields regardless
+  for (const field of SENSITIVE_FIELDS) {
+    delete result[field]
+  }
+
+  return result
+}
 
 /**
  * Parse the data field from a ClickHouse row
@@ -14,12 +70,39 @@ export function parseDataRow(row: DataRow): DataRow {
 }
 
 /**
- * Transform a ClickHouse row to a Payload document
+ * Check if a collection has a custom numeric ID field
  */
-export function rowToDocument<T extends TypeWithID = TypeWithID>(row: DataRow): T {
+export function hasCustomNumericID(fields: Field[]): boolean {
+  const idField = fields.find((field) => fieldAffectsData(field) && field.name === 'id')
+  return idField?.type === 'number'
+}
+
+/**
+ * Convert ID to the appropriate type based on collection config
+ */
+export function convertID(id: string, isNumeric: boolean): number | string {
+  if (isNumeric) {
+    const num = Number(id)
+    return isNaN(num) ? id : num
+  }
+  return id
+}
+
+/**
+ * Transform a ClickHouse row to a Payload document
+ * @param row The data row from ClickHouse
+ * @param numericID If true, convert ID to number (for collections with custom numeric ID fields)
+ */
+export function rowToDocument<T extends TypeWithID = TypeWithID>(
+  row: DataRow,
+  numericID = false,
+): T {
+  // Strip sensitive fields from the data
+  const sanitizedData = stripSensitiveFields(row.data)
+
   const doc = {
-    id: row.id,
-    ...row.data,
+    id: numericID ? convertID(row.id, true) : row.id,
+    ...sanitizedData,
     createdAt: toISOStringFromClickHouse(row.createdAt),
     updatedAt: toISOStringFromClickHouse(row.updatedAt),
   } as unknown as T
@@ -43,9 +126,14 @@ function toISOStringFromClickHouse(value: null | string | undefined): string | u
 
 /**
  * Transform an array of ClickHouse rows to Payload documents
+ * @param rows The data rows from ClickHouse
+ * @param numericID If true, convert IDs to numbers (for collections with custom numeric ID fields)
  */
-export function rowsToDocuments<T extends TypeWithID = TypeWithID>(rows: DataRow[]): T[] {
-  return rows.map((row) => rowToDocument<T>(row))
+export function rowsToDocuments<T extends TypeWithID = TypeWithID>(
+  rows: DataRow[],
+  numericID = false,
+): T[] {
+  return rows.map((row) => rowToDocument<T>(row, numericID))
 }
 
 /**
@@ -371,11 +459,7 @@ export function deepMerge<T extends Record<string, unknown>>(
       if (seen.has(sourceValue)) {
         continue
       }
-      result[key as keyof T] = deepMerge(
-        targetValue,
-        sourceValue,
-        seen,
-      ) as T[keyof T]
+      result[key as keyof T] = deepMerge(targetValue, sourceValue, seen) as T[keyof T]
     } else {
       // Otherwise, overwrite with source value
       result[key as keyof T] = sourceValue as T[keyof T]

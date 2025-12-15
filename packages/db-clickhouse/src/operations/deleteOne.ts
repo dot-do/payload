@@ -3,7 +3,7 @@ import type { DeleteOne, DeleteOneArgs, Document } from 'payload'
 import type { QueryParams } from '../queries/QueryBuilder.js'
 import type { ClickHouseAdapter, DataRow } from '../types.js'
 
-import { combineWhere, QueryBuilder } from '../queries/QueryBuilder.js'
+import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { generateVersion } from '../utilities/generateId.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
 import { parseDataRow, parseDateTime64ToMs, rowToDocument } from '../utilities/transform.js'
@@ -21,20 +21,25 @@ export const deleteOne: DeleteOne = async function deleteOne(
   }
 
   const qb = new QueryBuilder()
+  // Build base WHERE for inner query (only ns, type)
+  // Data field filters must be applied AFTER window function
   const baseWhereInner = qb.buildBaseWhereNoDeleted(this.namespace, collectionSlug)
-  const additionalWhere = qb.buildWhereClause(where as any)
-  const innerWhereClause = combineWhere(baseWhereInner, additionalWhere)
+  const dataWhere = qb.buildWhereClause(where as any)
   const findParams = qb.getParams()
 
   // Use window function, filter deletedAt after
+  // Apply data filters AFTER window function to ensure we filter on latest version
+  const outerWhere = dataWhere
+    ? `_rn = 1 AND deletedAt IS NULL AND (${dataWhere})`
+    : '_rn = 1 AND deletedAt IS NULL'
   const findQuery = `
     SELECT * EXCEPT(_rn)
     FROM (
       SELECT *, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
       FROM ${this.table}
-      WHERE ${innerWhereClause}
+      WHERE ${baseWhereInner}
     )
-    WHERE _rn = 1 AND deletedAt IS NULL
+    WHERE ${outerWhere}
     LIMIT 1
   `
 

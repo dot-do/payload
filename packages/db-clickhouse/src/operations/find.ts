@@ -3,9 +3,9 @@ import type { Find, FindArgs, PaginatedDocs, TypeWithID } from 'payload'
 import type { ClickHouseAdapter, DataRow } from '../types.js'
 
 import { buildLimitOffset, buildOrderBy } from '../queries/buildSort.js'
-import { combineWhere, QueryBuilder } from '../queries/QueryBuilder.js'
+import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
-import { parseDataRow, rowsToDocuments } from '../utilities/transform.js'
+import { hasCustomNumericID, parseDataRow, rowsToDocuments } from '../utilities/transform.js'
 
 export const find: Find = async function find<T = TypeWithID>(
   this: ClickHouseAdapter,
@@ -19,11 +19,15 @@ export const find: Find = async function find<T = TypeWithID>(
     throw new Error('ClickHouse client not connected')
   }
 
+  const collection = this.payload.collections[collectionSlug]
+  const numericID = collection ? hasCustomNumericID(collection.config.fields) : false
+
   const qb = new QueryBuilder()
-  // Build base WHERE without deletedAt (for use inside subquery)
+  // Build base WHERE for inner query (only ns, type - no data field filters)
+  // Data field filters must be applied AFTER window function to ensure we filter
+  // on the LATEST version of each document, not old versions
   const baseWhereInner = qb.buildBaseWhereNoDeleted(this.namespace, collectionSlug)
-  const additionalWhere = qb.buildWhereClause(where as any)
-  const innerWhereClause = combineWhere(baseWhereInner, additionalWhere)
+  const dataWhere = qb.buildWhereClause(where as any)
   const params = qb.getParams()
 
   let sortString: string | undefined
@@ -45,16 +49,20 @@ export const find: Find = async function find<T = TypeWithID>(
   const limitOffset = buildLimitOffset(effectiveLimit, effectivePage)
 
   // Use window function to get latest version per document
-  // Apply deletedAt filter AFTER window function so soft-deleted docs are properly excluded
-  // Note: We don't use FINAL because ORDER BY includes v, so each version is unique
+  // IMPORTANT: Data field filters (dataWhere) are applied AFTER window function
+  // This ensures we filter on the LATEST version of each document, not old versions
+  // Without this, queries could return stale data if an older version matches but the latest doesn't
+  const outerWhere = dataWhere
+    ? `_rn = 1 AND deletedAt IS NULL AND (${dataWhere})`
+    : '_rn = 1 AND deletedAt IS NULL'
   const query = `
     SELECT * EXCEPT(_rn)
     FROM (
       SELECT *, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
       FROM ${this.table}
-      WHERE ${innerWhereClause}
+      WHERE ${baseWhereInner}
     )
-    WHERE _rn = 1 AND deletedAt IS NULL
+    WHERE ${outerWhere}
     ${orderBy}
     ${limitOffset}
   `
@@ -67,17 +75,21 @@ export const find: Find = async function find<T = TypeWithID>(
 
   const rows = await result.json<DataRow>()
   const parsedRows = rows.map(parseDataRow)
-  const docs = rowsToDocuments<T & TypeWithID>(parsedRows) as T[]
+  const docs = rowsToDocuments<T & TypeWithID>(parsedRows, numericID) as T[]
 
   // Count only the latest versions (not all versions), excluding soft-deleted
+  // Apply data filters after window function to count latest versions only
+  const countOuterWhere = dataWhere
+    ? `_rn = 1 AND deletedAt IS NULL AND (${dataWhere})`
+    : '_rn = 1 AND deletedAt IS NULL'
   const countQuery = `
     SELECT count() as total
     FROM (
-      SELECT id, deletedAt, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
+      SELECT *, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
       FROM ${this.table}
-      WHERE ${innerWhereClause}
+      WHERE ${baseWhereInner}
     )
-    WHERE _rn = 1 AND deletedAt IS NULL
+    WHERE ${countOuterWhere}
   `
 
   const countResult = await this.clickhouse.query({

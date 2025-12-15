@@ -6,40 +6,17 @@ import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
 
 /**
- * Recursively map 'parent' field to 'id' in where clause.
- * In ClickHouse-native versioning, 'parent' is the document id.
+ * Get the versions collection type name.
+ * Payload stores versions with the naming convention: _${collection}_versions
  */
-function mapParentToId(where: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-
-  for (const [key, value] of Object.entries(where)) {
-    if (key === 'and' && Array.isArray(value)) {
-      result.and = value.map((item) =>
-        typeof item === 'object' && item !== null
-          ? mapParentToId(item as Record<string, unknown>)
-          : item,
-      )
-    } else if (key === 'or' && Array.isArray(value)) {
-      result.or = value.map((item) =>
-        typeof item === 'object' && item !== null
-          ? mapParentToId(item as Record<string, unknown>)
-          : item,
-      )
-    } else if (key === 'parent') {
-      result.id = value
-    } else {
-      result[key] = value
-    }
-  }
-
-  return result
+function getVersionsType(collectionSlug: string): string {
+  return `_${collectionSlug}_versions`
 }
 
 /**
  * Count versions of documents.
  *
- * ClickHouse-native versioning: versions are rows with the same (ns, type, id)
- * but different `v` timestamps.
+ * Versions are stored with type = `_${collection}_versions`.
  */
 export const countVersions: CountVersions = async function countVersions(
   this: ClickHouseAdapter,
@@ -53,13 +30,15 @@ export const countVersions: CountVersions = async function countVersions(
     throw new Error('ClickHouse client not connected')
   }
 
+  // Use versions type: _${collection}_versions
+  const versionsType = getVersionsType(collectionSlug)
   const qb = new QueryBuilder()
   const nsParam = qb.addNamedParam('ns', this.namespace)
-  const typeParam = qb.addNamedParam('type', collectionSlug)
+  const typeParam = qb.addNamedParam('type', versionsType)
   const baseWhere = `ns = ${nsParam} AND type = ${typeParam} AND deletedAt IS NULL`
 
-  // Recursively map 'parent' to 'id' since that's how versions are stored
-  const filteredWhere = where ? mapParentToId(where as Record<string, unknown>) : {}
+  // Keep where as-is since parent is stored in the data JSON
+  const filteredWhere = where || {}
 
   const additionalWhere = qb.buildWhereClause(filteredWhere as any)
   const whereClause = additionalWhere ? `${baseWhere} AND (${additionalWhere})` : baseWhere

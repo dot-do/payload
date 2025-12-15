@@ -2,7 +2,7 @@ import type { Count, CountArgs } from 'payload'
 
 import type { ClickHouseAdapter } from '../types.js'
 
-import { combineWhere, QueryBuilder } from '../queries/QueryBuilder.js'
+import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
 
 export const count: Count = async function count(
@@ -18,20 +18,25 @@ export const count: Count = async function count(
   }
 
   const qb = new QueryBuilder()
+  // Build base WHERE for inner query (only ns, type)
+  // Data field filters must be applied AFTER window function
   const baseWhereInner = qb.buildBaseWhereNoDeleted(this.namespace, collectionSlug)
-  const additionalWhere = qb.buildWhereClause(where as any)
-  const innerWhereClause = combineWhere(baseWhereInner, additionalWhere)
+  const dataWhere = qb.buildWhereClause(where as any)
   const params = qb.getParams()
 
   // Count only the latest versions, excluding soft-deleted
+  // Apply data filters AFTER window function to count latest versions only
+  const outerWhere = dataWhere
+    ? `_rn = 1 AND deletedAt IS NULL AND (${dataWhere})`
+    : '_rn = 1 AND deletedAt IS NULL'
   const query = `
     SELECT count() as total
     FROM (
-      SELECT id, deletedAt, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
+      SELECT *, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
       FROM ${this.table}
-      WHERE ${innerWhereClause}
+      WHERE ${baseWhereInner}
     )
-    WHERE _rn = 1 AND deletedAt IS NULL
+    WHERE ${outerWhere}
   `
 
   const result = await this.clickhouse.query({

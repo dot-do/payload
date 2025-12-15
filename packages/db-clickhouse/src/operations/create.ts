@@ -1,11 +1,13 @@
 import type { Create, CreateArgs, Document } from 'payload'
 
+import { fieldAffectsData } from 'payload/shared'
+
 import type { QueryParams } from '../queries/QueryBuilder.js'
 import type { ClickHouseAdapter } from '../types.js'
 
 import { generateId, generateVersion } from '../utilities/generateId.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
-import { extractTitle } from '../utilities/transform.js'
+import { extractTitle, stripSensitiveFields } from '../utilities/transform.js'
 
 export const create: Create = async function create(
   this: ClickHouseAdapter,
@@ -24,6 +26,14 @@ export const create: Create = async function create(
     throw new Error(`Collection '${collectionSlug}' not found`)
   }
 
+  // Check if collection has a custom ID field (not the default)
+  const customIDField = collection.config.fields.find(
+    (field) => fieldAffectsData(field) && field.name === 'id',
+  )
+  const hasNumericID = customIDField?.type === 'number'
+
+  // Store original ID for type-preserving return
+  const originalId = data.id
   const id = data.id ? String(data.id) : generateId(this.idType)
   const now = generateVersion()
   const titleField = collection.config.admin?.useAsTitle
@@ -31,7 +41,8 @@ export const create: Create = async function create(
   const userId = req?.user?.id ? String(req.user.id) : null
   const hasTimestamps = collection.config.timestamps !== false
 
-  const { id: _id, createdAt: userCreatedAt, updatedAt: userUpdatedAt, ...docData } = data
+  const { id: _id, createdAt: userCreatedAt, updatedAt: userUpdatedAt, ...rawDocData } = data
+  const docData = stripSensitiveFields(rawDocData)
 
   // Respect user-provided timestamps, or use current time
   const createdAtValue = userCreatedAt ? new Date(userCreatedAt as string).getTime() : now
@@ -82,8 +93,11 @@ export const create: Create = async function create(
     return null as unknown as Document
   }
 
+  // Return ID with original type preserved for custom numeric ID fields
+  const returnId = hasNumericID && typeof originalId === 'number' ? originalId : id
+
   const result: Document = {
-    id,
+    id: returnId,
     ...docData,
   }
 

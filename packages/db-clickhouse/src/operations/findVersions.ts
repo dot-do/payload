@@ -11,44 +11,26 @@ import type { ClickHouseAdapter, DataRow } from '../types.js'
 import { buildLimitOffset, buildOrderBy } from '../queries/buildSort.js'
 import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
-import { parseDataRow, parseDateTime64ToMs, toISOString } from '../utilities/transform.js'
+import {
+  parseDataRow,
+  parseDateTime64ToMs,
+  stripSensitiveFields,
+  toISOString,
+} from '../utilities/transform.js'
 
 /**
- * Recursively map 'parent' field to 'id' in where clause.
- * In ClickHouse-native versioning, 'parent' is the document id.
+ * Get the versions collection type name.
+ * Payload stores versions with the naming convention: _${collection}_versions
  */
-function mapParentToId(where: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-
-  for (const [key, value] of Object.entries(where)) {
-    if (key === 'and' && Array.isArray(value)) {
-      result.and = value.map((item) =>
-        typeof item === 'object' && item !== null
-          ? mapParentToId(item as Record<string, unknown>)
-          : item,
-      )
-    } else if (key === 'or' && Array.isArray(value)) {
-      result.or = value.map((item) =>
-        typeof item === 'object' && item !== null
-          ? mapParentToId(item as Record<string, unknown>)
-          : item,
-      )
-    } else if (key === 'parent') {
-      // Map 'parent' to 'id' - in ClickHouse versioning, parent IS the document id
-      result.id = value
-    } else {
-      result[key] = value
-    }
-  }
-
-  return result
+function getVersionsType(collectionSlug: string): string {
+  return `_${collectionSlug}_versions`
 }
 
 /**
  * Find versions of documents.
  *
- * ClickHouse-native versioning: versions are rows with the same (ns, type, id)
- * but different `v` timestamps. The `v` timestamp serves as the version identifier.
+ * Versions are stored with type = `_${collection}_versions`.
+ * Each version has a unique `v` timestamp that serves as its identifier.
  */
 export const findVersions: FindVersions = async function findVersions<T = JsonObject>(
   this: ClickHouseAdapter,
@@ -62,10 +44,11 @@ export const findVersions: FindVersions = async function findVersions<T = JsonOb
     throw new Error('ClickHouse client not connected')
   }
 
-  // Build parameterized base where - use collection type directly (no _versions_ prefix)
+  // Build parameterized base where using versions type: _${collection}_versions
+  const versionsType = getVersionsType(collectionSlug)
   const qb = new QueryBuilder()
   const nsParam = qb.addNamedParam('ns', this.namespace)
-  const typeParam = qb.addNamedParam('type', collectionSlug)
+  const typeParam = qb.addNamedParam('type', versionsType)
   const baseWhere = `ns = ${nsParam} AND type = ${typeParam} AND deletedAt IS NULL`
 
   // Check if querying for latest - we compute this dynamically via max(v)
@@ -73,13 +56,11 @@ export const findVersions: FindVersions = async function findVersions<T = JsonOb
   const latestValue = hasLatestQuery ? (where as any).latest?.equals : undefined
 
   // Remove 'latest' from where clause since we handle it specially
-  // Map 'parent' to 'id' since in ClickHouse versioning, parent IS the document id
-  let filteredWhere: Record<string, unknown> = where ? { ...where } : {}
+  // Keep 'parent' queries as-is since parent is stored in the data JSON
+  const filteredWhere: Record<string, unknown> = where ? { ...where } : {}
   if ('latest' in filteredWhere) {
     delete filteredWhere.latest
   }
-  // Recursively map 'parent' to 'id' throughout the where clause
-  filteredWhere = mapParentToId(filteredWhere)
 
   const additionalWhere = qb.buildWhereClause(filteredWhere as any)
   const whereClause = additionalWhere ? `${baseWhere} AND (${additionalWhere})` : baseWhere
@@ -105,14 +86,19 @@ export const findVersions: FindVersions = async function findVersions<T = JsonOb
   let query: string
   let countQuery: string
 
+  // FINAL ensures rows with same (ns, type, id, v) are deduplicated
+  // This is necessary because updateVersion inserts a row with the same v
+  // and without FINAL, both the old and new row would be visible until background merge
+  // Note: Different versions have different v values, so they are NOT deduplicated against each other
+
   if (latestValue === true) {
     // Use window function to find only the latest version per document id
     query = `
-      SELECT *
+      SELECT * EXCEPT(_rn)
       FROM (
         SELECT *,
           row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
-        FROM ${this.table}
+        FROM ${this.table} FINAL
         WHERE ${whereClause}
       )
       WHERE _rn = 1
@@ -124,7 +110,7 @@ export const findVersions: FindVersions = async function findVersions<T = JsonOb
       FROM (
         SELECT id,
           row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
-        FROM ${this.table}
+        FROM ${this.table} FINAL
         WHERE ${whereClause}
       )
       WHERE _rn = 1
@@ -132,11 +118,11 @@ export const findVersions: FindVersions = async function findVersions<T = JsonOb
   } else if (latestValue === false) {
     // Find all non-latest versions (exclude the max v per document)
     query = `
-      SELECT *
+      SELECT * EXCEPT(_rn)
       FROM (
         SELECT *,
           row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
-        FROM ${this.table}
+        FROM ${this.table} FINAL
         WHERE ${whereClause}
       )
       WHERE _rn > 1
@@ -148,23 +134,23 @@ export const findVersions: FindVersions = async function findVersions<T = JsonOb
       FROM (
         SELECT id,
           row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
-        FROM ${this.table}
+        FROM ${this.table} FINAL
         WHERE ${whereClause}
       )
       WHERE _rn > 1
     `
   } else {
-    // No latest filter - return all versions
+    // No latest filter - return ALL version rows (each row is a version)
     query = `
       SELECT *
-      FROM ${this.table}
+      FROM ${this.table} FINAL
       WHERE ${whereClause}
       ${orderBy}
       ${limitOffset}
     `
     countQuery = `
       SELECT count() as total
-      FROM ${this.table}
+      FROM ${this.table} FINAL
       WHERE ${whereClause}
     `
   }
@@ -179,23 +165,21 @@ export const findVersions: FindVersions = async function findVersions<T = JsonOb
 
   const docs = rows.map((row): TypeWithVersion<T> => {
     const parsed = parseDataRow(row)
-    const data = parsed.data
-    // Remove internal fields from version data
-    const { _autosave, ...versionData } = data
+    const data = parsed.data as { _autosave?: boolean; parent: string; version: T }
 
-    // Convert v timestamp to milliseconds for version id
-    const vTimestamp = row.v ? parseDateTime64ToMs(row.v) : Date.now()
+    // Strip sensitive fields from version data
+    const sanitizedVersion = stripSensitiveFields(data.version as Record<string, unknown>) as T
 
     return {
-      id: String(vTimestamp),
+      id: row.id, // Version ID is the row ID (v timestamp as string)
       createdAt: row.createdAt
         ? toISOString(row.createdAt) || new Date().toISOString()
         : new Date().toISOString(),
-      parent: row.id,
+      parent: data.parent,
       updatedAt: row.updatedAt
         ? toISOString(row.updatedAt) || new Date().toISOString()
         : new Date().toISOString(),
-      version: versionData as T,
+      version: sanitizedVersion,
     }
   })
 
