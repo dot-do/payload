@@ -4,8 +4,9 @@ import type { ClickHouseAdapter } from '../types.js'
 
 export const rollbackTransaction: RollbackTransaction = async function rollbackTransaction(
   this: ClickHouseAdapter,
-  txId: null | string,
+  id: number | Promise<number | string> | string,
 ): Promise<void> {
+  const txId = String(await id)
   if (!txId) {
     return
   }
