@@ -47,6 +47,20 @@ services:
     volumes:
       - ./google-cloud-storage/payload-bucket:/data/payload-bucket
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse_payload
+    ports:
+      - '8123:8123'
+      - '9000:9000'
+    environment:
+      - CLICKHOUSE_DB=payloadtests
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+
 volumes:
   google-cloud-storage:
   azurestoragedata:
+  clickhouse_data:

@@ -126,6 +126,11 @@ import { sqliteD1Adapter } from '@payloadcms/db-d1-sqlite'
 
 export const databaseAdapter = sqliteD1Adapter({ binding: global.d1 })
   `,
+  'do-sqlite': `
+import { sqliteDOAdapter } from '@payloadcms/db-do-sqlite'
+
+export const databaseAdapter = sqliteDOAdapter({ storage: global.doStorage, ctx: global.doCtx, autoIncrement: true })
+  `,
   clickhouse: `
 import { clickhouseAdapter } from '@dotdo/db-clickhouse'
 
@@ -136,6 +141,23 @@ export const databaseAdapter = clickhouseAdapter({
   database: process.env.CLICKHOUSE_DATABASE || 'payloadtests',
   namespace: process.env.CLICKHOUSE_NAMESPACE || 'test',
   table: process.env.CLICKHOUSE_TABLE || 'data',
+})
+  `,
+  'do-clickhouse': `
+import { doClickhouseAdapter } from '@payloadcms/db-do-clickhouse'
+
+export const databaseAdapter = doClickhouseAdapter({
+  storage: global.doStorage,
+  ctx: global.doCtx,
+  autoIncrement: true,
+  namespace: process.env.CLICKHOUSE_NAMESPACE || 'test',
+  clickhouse: {
+    url: process.env.CLICKHOUSE_URL || 'http://127.0.0.1:8123',
+    username: process.env.CLICKHOUSE_USERNAME,
+    password: process.env.CLICKHOUSE_PASSWORD,
+    database: process.env.CLICKHOUSE_DATABASE || 'payloadtests',
+    table: process.env.CLICKHOUSE_TABLE || 'data',
+  },
 })
   `,
 }

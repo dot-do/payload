@@ -3,12 +3,18 @@ import { createSQLiteDB } from '@miniflare/shared'
 import dotenv from 'dotenv'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 
+import { createMockDOStorage } from './createDOStorage'
+
 dotenv.config()
 
 declare global {
   // Add the custom property to the NodeJS global type
   // eslint-disable-next-line no-var
   var _mongoMemoryServer: MongoMemoryReplSet | undefined
+  // eslint-disable-next-line no-var
+  var doStorage: Awaited<ReturnType<typeof createMockDOStorage>>['storage'] | undefined
+  // eslint-disable-next-line no-var
+  var doCtx: Awaited<ReturnType<typeof createMockDOStorage>>['ctx'] | undefined
 }
 
 /**
@@ -29,6 +35,22 @@ export default async () => {
     process.env.PAYLOAD_DROP_DATABASE = 'false'
     console.log('Starting memory D1 db...')
     global.d1 = new D1DatabaseAPI(await createSQLiteDB(':memory'))
+  }
+
+  if (process.env.PAYLOAD_DATABASE === 'do-sqlite' && !global.doStorage) {
+    process.env.PAYLOAD_DROP_DATABASE = 'false'
+    console.log('Starting memory DO SQLite db...')
+    const { storage, ctx } = await createMockDOStorage()
+    global.doStorage = storage
+    global.doCtx = ctx
+  }
+
+  if (process.env.PAYLOAD_DATABASE === 'do-clickhouse' && !global.doStorage) {
+    process.env.PAYLOAD_DROP_DATABASE = 'false'
+    console.log('Starting memory DO SQLite + ClickHouse db...')
+    const { storage, ctx } = await createMockDOStorage()
+    global.doStorage = storage
+    global.doCtx = ctx
   }
   if (
     (!process.env.PAYLOAD_DATABASE ||
