@@ -75,6 +75,62 @@ ORDER BY (ns, toType, toId, fromType, fromId, fromField, position)
 }
 
 /**
+ * Generate SQL to create the actions table if it doesn't exist
+ * Actions table is used for transaction staging - writes go here first,
+ * then get copied to data table on commit
+ */
+function getCreateActionsTableSQL(): string {
+  return `
+CREATE TABLE IF NOT EXISTS actions (
+    txId String,
+    txStatus Enum8('pending' = 0, 'committed' = 1, 'aborted' = 2),
+    txTimeout Nullable(DateTime64(3)),
+    txCreatedAt DateTime64(3),
+    id String,
+    ns String,
+    type String,
+    v DateTime64(3),
+    data JSON,
+    title String DEFAULT '',
+    createdAt DateTime64(3),
+    createdBy Nullable(String),
+    updatedAt DateTime64(3),
+    updatedBy Nullable(String),
+    deletedAt Nullable(DateTime64(3)),
+    deletedBy Nullable(String)
+) ENGINE = MergeTree
+PARTITION BY toYYYYMM(txCreatedAt)
+ORDER BY (ns, txId, type, id)
+`
+}
+
+/**
+ * Generate SQL to create the search table if it doesn't exist
+ * Search table supports both full-text and vector similarity search
+ */
+function getCreateSearchTableSQL(embeddingDimensions: number): string {
+  return `
+CREATE TABLE IF NOT EXISTS search (
+    id String,
+    ns String,
+    collection String,
+    docId String,
+    chunkIndex UInt16 DEFAULT 0,
+    text String,
+    embedding Array(Float32),
+    status Enum8('pending' = 0, 'ready' = 1, 'failed' = 2),
+    errorMessage Nullable(String),
+    createdAt DateTime64(3),
+    updatedAt DateTime64(3),
+    INDEX text_idx text TYPE tokenbf_v1(10240, 3, 0) GRANULARITY 4,
+    INDEX vec_idx embedding TYPE vector_similarity('hnsw', 'cosineDistance')
+) ENGINE = ReplacingMergeTree(updatedAt)
+PARTITION BY ns
+ORDER BY (ns, collection, docId, chunkIndex)
+`
+}
+
+/**
  * Connect to ClickHouse and create the database and data table if needed
  */
 export const connect: Connect = async function connect(this: ClickHouseAdapter): Promise<void> {
@@ -148,15 +204,35 @@ export const connect: Connect = async function connect(this: ClickHouseAdapter):
     query: getCreateRelationshipsTableSQL(this.table),
   })
 
+  // Create the actions table if it doesn't exist
+  await this.clickhouse.command({
+    query: getCreateActionsTableSQL(),
+  })
+
+  // Create the search table if it doesn't exist
+  await this.clickhouse.command({
+    query: getCreateSearchTableSQL(this.embeddingDimensions),
+  })
+
   // Delete data for current namespace if PAYLOAD_DROP_DATABASE is set (for tests)
   if (process.env.PAYLOAD_DROP_DATABASE === 'true') {
     this.payload.logger.info(`---- DROPPING DATA FOR NAMESPACE ${this.namespace} ----`)
+    // Use mutations_sync=2 to wait for DELETE mutations to complete on all replicas
+    // This ensures test isolation by making deletes synchronous
     await this.clickhouse.command({
-      query: `DELETE FROM ${this.table} WHERE ns = {ns:String}`,
+      query: `DELETE FROM ${this.table} WHERE ns = {ns:String} SETTINGS mutations_sync = 2`,
       query_params: { ns: this.namespace },
     })
     await this.clickhouse.command({
-      query: `DELETE FROM ${this.table}_relationships WHERE ns = {ns:String}`,
+      query: `DELETE FROM ${this.table}_relationships WHERE ns = {ns:String} SETTINGS mutations_sync = 2`,
+      query_params: { ns: this.namespace },
+    })
+    await this.clickhouse.command({
+      query: `DELETE FROM actions WHERE ns = {ns:String} SETTINGS mutations_sync = 2`,
+      query_params: { ns: this.namespace },
+    })
+    await this.clickhouse.command({
+      query: `DELETE FROM search WHERE ns = {ns:String} SETTINGS mutations_sync = 2`,
       query_params: { ns: this.namespace },
     })
     this.payload.logger.info('---- DROPPED NAMESPACE DATA ----')

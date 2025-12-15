@@ -8,7 +8,7 @@ import type { RelationshipRow } from '../types.js'
 export interface ExtractRelationshipsOptions {
   fromId: string
   fromType: string
-  locale?: string
+  locale?: null | string
   ns: string
   v: number
 }
@@ -24,6 +24,36 @@ export function extractRelationships(
   const relationships: RelationshipRow[] = []
 
   for (const field of fields) {
+    // Handle tabs field first (before fieldAffectsData check, since tabs don't "affect data")
+    if (field.type === 'tabs') {
+      for (const tab of field.tabs) {
+        if (tab.fields) {
+          // Named tab - data is nested under tab name
+          if ('name' in tab && tab.name) {
+            const tabData = data[tab.name] as Record<string, unknown> | undefined
+            if (tabData) {
+              const nested = extractRelationships(tabData, tab.fields, options)
+              relationships.push(...nested)
+            }
+          } else {
+            // Unnamed tab - fields are at root level
+            const nested = extractRelationships(data, tab.fields, options)
+            relationships.push(...nested)
+          }
+        }
+      }
+      continue
+    }
+
+    // Handle collapsible and row fields (containers that don't affect data)
+    if (field.type === 'collapsible' || field.type === 'row') {
+      if (field.fields) {
+        const nested = extractRelationships(data, field.fields, options)
+        relationships.push(...nested)
+      }
+      continue
+    }
+
     if (!fieldAffectsData(field)) {
       continue
     }
@@ -81,26 +111,6 @@ export function extractRelationships(
           const blockConfig = field.blocks.find((b) => b.slug === block.blockType)
           if (blockConfig?.fields) {
             const nested = extractRelationships(block, blockConfig.fields, options)
-            relationships.push(...nested)
-          }
-        }
-      }
-    }
-
-    // Recurse into tabs
-    if (field.type === 'tabs' && field.tabs) {
-      for (const tab of field.tabs) {
-        if ('fields' in tab && tab.fields) {
-          // Named tab - data is nested under tab name
-          if ('name' in tab && tab.name) {
-            const tabData = data[tab.name] as Record<string, unknown> | undefined
-            if (tabData) {
-              const nested = extractRelationships(tabData, tab.fields, options)
-              relationships.push(...nested)
-            }
-          } else {
-            // Unnamed tab - fields are at root level
-            const nested = extractRelationships(data, tab.fields, options)
             relationships.push(...nested)
           }
         }

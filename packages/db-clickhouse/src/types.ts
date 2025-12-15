@@ -36,6 +36,10 @@ export interface UpsertManyArgs {
 export interface ClickHouseAdapterArgs {
   /** Database name (default: 'default') */
   database?: string
+  /** Default transaction timeout in ms (default: 30000, null for no timeout) */
+  defaultTransactionTimeout?: null | number
+  /** Embedding dimensions for vector search (default: 1536) */
+  embeddingDimensions?: number
   /** ID type for documents (default: 'text' - nanoid) */
   idType?: 'text' | 'uuid'
   /** Namespace to separate different Payload apps (default: 'payload') */
@@ -69,6 +73,10 @@ export type ClickHouseAdapter = {
   config: ClickHouseAdapterArgs
   /** Database name */
   database: string
+  /** Default transaction timeout in ms */
+  defaultTransactionTimeout: null | number
+  /** Embedding dimensions for vector search */
+  embeddingDimensions: number
   /**
    * Execute a raw SQL query against ClickHouse
    * @example

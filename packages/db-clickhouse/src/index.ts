@@ -71,6 +71,8 @@ export type {
 export function clickhouseAdapter(args: ClickHouseAdapterArgs): DatabaseAdapterObj {
   const {
     database = 'default',
+    defaultTransactionTimeout = 30_000,
+    embeddingDimensions = 1536,
     idType = 'text',
     namespace = 'payload',
     password = '',
@@ -87,8 +89,20 @@ export function clickhouseAdapter(args: ClickHouseAdapterArgs): DatabaseAdapterO
 
       // ClickHouse-specific config
       clickhouse: null, // Set during connect, exposes raw client via payload.db.clickhouse
-      config: { database, idType, namespace, password, table, url, username },
+      config: {
+        database,
+        defaultTransactionTimeout,
+        embeddingDimensions,
+        idType,
+        namespace,
+        password,
+        table,
+        url,
+        username,
+      },
       database,
+      defaultTransactionTimeout,
+      embeddingDimensions,
       idType,
       namespace,
       table,
