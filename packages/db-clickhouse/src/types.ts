@@ -137,6 +137,19 @@ export interface DataRow {
   v: string // DateTime64(3) comes as ISO string
 }
 
+export interface RelationshipRow {
+  deletedAt: null | number
+  fromField: string
+  fromId: string
+  fromType: string
+  locale: null | string
+  ns: string
+  position: number
+  toId: string
+  toType: string
+  v: number // timestamp in milliseconds
+}
+
 export interface InsertData {
   createdAt: number
   createdBy?: null | string
