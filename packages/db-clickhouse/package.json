@@ -48,14 +48,16 @@
     "clean": "rimraf -g {dist,*.tsbuildinfo}",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "echo 'Run from monorepo root: PAYLOAD_DATABASE=clickhouse pnpm test:int'"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@clickhouse/client-web": "^1.8.1"
   },
   "devDependencies": {
     "@payloadcms/eslint-config": "workspace:*",
-    "payload": "workspace:*"
+    "payload": "workspace:*",
+    "vitest": "3.2.3"
   },
   "peerDependencies": {
     "payload": "^3.0.0"
