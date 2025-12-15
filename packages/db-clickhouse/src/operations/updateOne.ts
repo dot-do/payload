@@ -5,8 +5,16 @@ import type { ClickHouseAdapter, DataRow } from '../types.js'
 
 import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { generateId, generateVersion } from '../utilities/generateId.js'
+import { extractRelationships, insertRelationships } from '../utilities/relationships.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
-import { deepMerge, extractTitle, parseDataRow, toISOString } from '../utilities/transform.js'
+import {
+  convertID,
+  deepMerge,
+  extractTitle,
+  hasCustomNumericID,
+  parseDataRow,
+  toISOString,
+} from '../utilities/transform.js'
 
 export const updateOne: UpdateOne = async function updateOne(
   this: ClickHouseAdapter,
@@ -26,6 +34,8 @@ export const updateOne: UpdateOne = async function updateOne(
   if (!collection) {
     throw new Error(`Collection '${collectionSlug}' not found`)
   }
+
+  const numericID = hasCustomNumericID(collection.config.fields)
 
   // Build parameterized query to find existing document
   const qb = new QueryBuilder()
@@ -145,8 +155,18 @@ export const updateOne: UpdateOne = async function updateOne(
     query_params: insertParams,
   })
 
+  // Extract and insert relationships
+  const relationships = extractRelationships(mergedData, collection.config.fields, {
+    fromId: existing.id,
+    fromType: collectionSlug,
+    locale: req?.locale,
+    ns: this.namespace,
+    v: now,
+  })
+  await insertRelationships(this.clickhouse, this.table, relationships)
+
   const result: Document = {
-    id: existing.id,
+    id: convertID(existing.id, numericID),
     ...mergedData,
   }
 
