@@ -87,32 +87,34 @@ export const clickhousePlugin =
     }
 
     // Inject search hooks into tracked collections
-    if (config.search !== false && config.search?.collections) {
+    if (config.search !== false && typeof config.search === 'object' && config.search.collections) {
       const searchConfig = config.search
       const trackedCollections = Object.keys(searchConfig.collections)
 
       for (let i = 0; i < collections.length; i++) {
         const collection = collections[i]
-        if (trackedCollections.includes(collection.slug)) {
+        if (collection && trackedCollections.includes(collection.slug)) {
           const collectionSearchConfig = searchConfig.collections[collection.slug]
-          collections[i] = {
-            ...collection,
-            hooks: {
-              ...collection.hooks,
-              afterChange: [
-                ...(collection.hooks?.afterChange || []),
-                syncWithSearch({
-                  chunkOverlap: searchConfig.chunkOverlap,
-                  chunkSize: searchConfig.chunkSize,
-                  collectionSlug: collection.slug,
-                  searchConfig: collectionSearchConfig,
-                }),
-              ],
-              beforeDelete: [
-                ...(collection.hooks?.beforeDelete || []),
-                deleteFromSearch({ collectionSlug: collection.slug }),
-              ],
-            },
+          if (collectionSearchConfig) {
+            collections[i] = {
+              ...collection,
+              hooks: {
+                ...collection.hooks,
+                afterChange: [
+                  ...(collection.hooks?.afterChange || []),
+                  syncWithSearch({
+                    chunkOverlap: searchConfig.chunkOverlap,
+                    chunkSize: searchConfig.chunkSize,
+                    collectionSlug: collection.slug,
+                    searchConfig: collectionSearchConfig,
+                  }),
+                ],
+                beforeDelete: [
+                  ...(collection.hooks?.beforeDelete || []),
+                  deleteFromSearch({ collectionSlug: collection.slug }),
+                ],
+              },
+            }
           }
         }
       }
@@ -125,6 +127,7 @@ export const clickhousePlugin =
       if (eventsConfig?.trackCRUD !== false) {
         for (let i = 0; i < collections.length; i++) {
           const collection = collections[i]
+          if (!collection) {continue}
 
           // Skip plugin-generated collections
           const pluginSlugs = ['search', 'events', 'relationships', 'actions', 'data']
