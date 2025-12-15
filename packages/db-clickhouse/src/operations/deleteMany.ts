@@ -5,6 +5,7 @@ import type { ClickHouseAdapter, DataRow } from '../types.js'
 
 import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { generateVersion } from '../utilities/generateId.js'
+import { softDeleteRelationships } from '../utilities/relationships.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
 import { parseDataRow, parseDateTime64ToMs } from '../utilities/transform.js'
 
@@ -105,7 +106,7 @@ export const deleteMany: DeleteMany = async function deleteMany(
       )
     `
 
-    return { params: deleteParams, query: deleteQuery }
+    return { deleteV, existing, params: deleteParams, query: deleteQuery }
   })
 
   // Execute all soft-deletes in parallel
@@ -114,6 +115,18 @@ export const deleteMany: DeleteMany = async function deleteMany(
       this.clickhouse!.command({
         query: op.query,
         query_params: op.params,
+      }),
+    ),
+  )
+
+  // Soft-delete all relationships for each deleted document
+  await Promise.all(
+    operations.map((op) =>
+      softDeleteRelationships(this.clickhouse!, this.table, {
+        fromId: op.existing.id,
+        fromType: collectionSlug,
+        ns: this.namespace,
+        v: op.deleteV,
       }),
     ),
   )
