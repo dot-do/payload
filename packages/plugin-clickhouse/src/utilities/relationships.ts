@@ -1,6 +1,15 @@
 // packages/plugin-clickhouse/src/utilities/relationships.ts
 import type { Payload } from 'payload'
 
+// Type for ClickHouse adapter methods (not all adapters have these)
+interface ClickHouseDb {
+  execute: <T = unknown>(args: {
+    query: string
+    query_params: Record<string, unknown>
+  }) => Promise<T[]>
+  namespace: string
+}
+
 export interface GetLinksArgs {
   collection: string
   id: string
@@ -35,11 +44,13 @@ export interface GraphNode {
  */
 export const createGetIncomingLinks = (payload: Payload) => {
   return async ({ id, collection }: GetLinksArgs): Promise<LinkResult[]> => {
-    if (typeof payload.db.execute !== 'function') {
+    const db = payload.db as unknown as ClickHouseDb
+
+    if (typeof db.execute !== 'function') {
       return []
     }
 
-    const results = await payload.db.execute<LinkResult>({
+    const results = await db.execute<LinkResult>({
       query: `
         SELECT fromType, fromId, fromField, toType, toId, position, locale
         FROM relationships
@@ -50,7 +61,7 @@ export const createGetIncomingLinks = (payload: Payload) => {
         ORDER BY fromType, fromId
       `,
       query_params: {
-        ns: payload.db.namespace,
+        ns: db.namespace,
         toId: id,
         toType: collection,
       },
@@ -65,11 +76,13 @@ export const createGetIncomingLinks = (payload: Payload) => {
  */
 export const createGetOutgoingLinks = (payload: Payload) => {
   return async ({ id, collection }: GetLinksArgs): Promise<LinkResult[]> => {
-    if (typeof payload.db.execute !== 'function') {
+    const db = payload.db as unknown as ClickHouseDb
+
+    if (typeof db.execute !== 'function') {
       return []
     }
 
-    const results = await payload.db.execute<LinkResult>({
+    const results = await db.execute<LinkResult>({
       query: `
         SELECT fromType, fromId, fromField, toType, toId, position, locale
         FROM relationships
@@ -82,7 +95,7 @@ export const createGetOutgoingLinks = (payload: Payload) => {
       query_params: {
         fromId: id,
         fromType: collection,
-        ns: payload.db.namespace,
+        ns: db.namespace,
       },
     })
 
@@ -95,13 +108,15 @@ export const createGetOutgoingLinks = (payload: Payload) => {
  */
 export const createFindOrphanedLinks = (payload: Payload) => {
   return async (args?: { collection?: string }): Promise<LinkResult[]> => {
-    if (typeof payload.db.execute !== 'function') {
+    const db = payload.db as unknown as ClickHouseDb
+
+    if (typeof db.execute !== 'function') {
       return []
     }
 
     const collectionFilter = args?.collection ? 'AND r.fromType = {collection:String}' : ''
 
-    const results = await payload.db.execute<LinkResult>({
+    const results = await db.execute<LinkResult>({
       query: `
         SELECT r.fromType, r.fromId, r.fromField, r.toType, r.toId, r.position, r.locale
         FROM relationships r
@@ -114,7 +129,7 @@ export const createFindOrphanedLinks = (payload: Payload) => {
       `,
       query_params: {
         collection: args?.collection || '',
-        ns: payload.db.namespace,
+        ns: db.namespace,
       },
     })
 

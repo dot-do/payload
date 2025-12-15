@@ -1,6 +1,18 @@
 // packages/plugin-clickhouse/src/utilities/actions.ts
 import type { Payload } from 'payload'
 
+import { nanoid } from 'nanoid'
+
+// Type for ClickHouse adapter methods (not all adapters have these)
+interface ClickHouseDb {
+  execute: <T = unknown>(args: {
+    query: string
+    query_params: Record<string, unknown>
+  }) => Promise<T[]>
+  idType: 'text' | 'uuid'
+  namespace: string
+}
+
 export interface EnqueueArgs {
   assignedTo?: string
   collection?: string
@@ -80,17 +92,18 @@ export interface ResumeActionArgs {
  */
 export const createEnqueue = (payload: Payload) => {
   return async (args: EnqueueArgs): Promise<string> => {
-    if (typeof payload.db.execute !== 'function') {
+    const db = payload.db as unknown as ClickHouseDb
+
+    if (typeof db.execute !== 'function') {
       throw new Error('execute not available on database adapter')
     }
 
-    const id =
-      payload.db.idType === 'uuid' ? crypto.randomUUID() : (await import('nanoid')).nanoid()
+    const id = db.idType === 'uuid' ? crypto.randomUUID() : nanoid()
 
     const now = Date.now()
     const timeoutAt = args.timeoutMs ? new Date(now + args.timeoutMs) : null
 
-    await payload.db.execute({
+    await db.execute({
       query: `
         INSERT INTO actions (
           id, ns, type, name, status, priority,
@@ -126,7 +139,7 @@ export const createEnqueue = (payload: Payload) => {
         error: null,
         input: JSON.stringify(args.input || {}),
         maxAttempts: args.maxAttempts || 3,
-        ns: payload.db.namespace,
+        ns: db.namespace,
         output: JSON.stringify({}),
         parentId: args.parentId || null,
         priority: args.priority || 0,
@@ -174,7 +187,9 @@ export const createClaimActions = (payload: Payload) => {
     limit = 10,
     lockFor = 60000,
   }: ClaimActionsArgs): Promise<ActionRecord[]> => {
-    if (typeof payload.db.execute !== 'function') {
+    const db = payload.db as unknown as ClickHouseDb
+
+    if (typeof db.execute !== 'function') {
       return []
     }
 
@@ -185,7 +200,7 @@ export const createClaimActions = (payload: Payload) => {
     const nameFilter = name ? 'AND name = {name:String}' : ''
     const typeFilter = type ? 'AND type = {type:String}' : ''
 
-    const actions = await payload.db.execute<ActionRecord>({
+    const actions = await db.execute<ActionRecord>({
       query: `
         SELECT *
         FROM actions
@@ -203,7 +218,7 @@ export const createClaimActions = (payload: Payload) => {
         type: type || '',
         limit,
         now,
-        ns: payload.db.namespace,
+        ns: db.namespace,
       },
     })
 
@@ -212,8 +227,8 @@ export const createClaimActions = (payload: Payload) => {
     }
 
     // Mark as running
-    const ids = actions.map((a) => a.id)
-    await payload.db.execute({
+    const ids = actions.map((a: ActionRecord) => a.id)
+    await db.execute({
       query: `
         ALTER TABLE actions
         UPDATE status = 'running', startedAt = {now:DateTime64(3)}, timeoutAt = {lockUntil:DateTime64(3)}, attempts = attempts + 1, v = {now:DateTime64(3)}
@@ -223,7 +238,7 @@ export const createClaimActions = (payload: Payload) => {
         ids,
         lockUntil,
         now,
-        ns: payload.db.namespace,
+        ns: db.namespace,
       },
     })
 
@@ -236,12 +251,14 @@ export const createClaimActions = (payload: Payload) => {
  */
 export const createCompleteAction = (payload: Payload) => {
   return async ({ id, output = {} }: CompleteActionArgs): Promise<void> => {
-    if (typeof payload.db.execute !== 'function') {
+    const db = payload.db as unknown as ClickHouseDb
+
+    if (typeof db.execute !== 'function') {
       return
     }
 
     const now = Date.now()
-    await payload.db.execute({
+    await db.execute({
       query: `
         ALTER TABLE actions
         UPDATE status = 'completed', output = {output:String}, completedAt = {now:DateTime64(3)}, v = {now:DateTime64(3)}
@@ -250,7 +267,7 @@ export const createCompleteAction = (payload: Payload) => {
       query_params: {
         id,
         now,
-        ns: payload.db.namespace,
+        ns: db.namespace,
         output: JSON.stringify(output),
       },
     })
@@ -262,22 +279,24 @@ export const createCompleteAction = (payload: Payload) => {
  */
 export const createFailAction = (payload: Payload) => {
   return async ({ id, error, retryAfter }: FailActionArgs): Promise<void> => {
-    if (typeof payload.db.execute !== 'function') {
+    const db = payload.db as unknown as ClickHouseDb
+
+    if (typeof db.execute !== 'function') {
       return
     }
 
     const now = Date.now()
 
     // Check if should retry
-    const [action] = await payload.db.execute<ActionRecord>({
+    const [action] = await db.execute<ActionRecord>({
       query: `SELECT attempts, maxAttempts FROM actions WHERE id = {id:String} AND ns = {ns:String}`,
-      query_params: { id, ns: payload.db.namespace },
+      query_params: { id, ns: db.namespace },
     })
 
     const shouldRetry = action && action.attempts < action.maxAttempts
     const newStatus = shouldRetry ? 'pending' : 'failed'
 
-    await payload.db.execute({
+    await db.execute({
       query: `
         ALTER TABLE actions
         UPDATE
@@ -293,7 +312,7 @@ export const createFailAction = (payload: Payload) => {
         completedAt: shouldRetry ? null : now,
         error: JSON.stringify(error),
         now,
-        ns: payload.db.namespace,
+        ns: db.namespace,
         retryAfter: shouldRetry ? retryAfter || new Date(now + 60000) : null,
         status: newStatus,
       },
@@ -306,18 +325,20 @@ export const createFailAction = (payload: Payload) => {
  */
 export const createCancelAction = (payload: Payload) => {
   return async ({ id }: { id: string }): Promise<void> => {
-    if (typeof payload.db.execute !== 'function') {
+    const db = payload.db as unknown as ClickHouseDb
+
+    if (typeof db.execute !== 'function') {
       return
     }
 
     const now = Date.now()
-    await payload.db.execute({
+    await db.execute({
       query: `
         ALTER TABLE actions
         UPDATE status = 'cancelled', completedAt = {now:DateTime64(3)}, v = {now:DateTime64(3)}
         WHERE id = {id:String} AND ns = {ns:String}
       `,
-      query_params: { id, now, ns: payload.db.namespace },
+      query_params: { id, now, ns: db.namespace },
     })
   }
 }
@@ -327,16 +348,18 @@ export const createCancelAction = (payload: Payload) => {
  */
 export const createResumeAction = (payload: Payload) => {
   return async ({ id, input = {} }: ResumeActionArgs): Promise<void> => {
-    if (typeof payload.db.execute !== 'function') {
+    const db = payload.db as unknown as ClickHouseDb
+
+    if (typeof db.execute !== 'function') {
       return
     }
 
     const now = Date.now()
 
     // Get current action to merge context
-    const [action] = await payload.db.execute<ActionRecord>({
+    const [action] = await db.execute<ActionRecord>({
       query: `SELECT context, step FROM actions WHERE id = {id:String} AND ns = {ns:String}`,
-      query_params: { id, ns: payload.db.namespace },
+      query_params: { id, ns: db.namespace },
     })
 
     const currentContext = action ? JSON.parse(String(action.context)) : {}
@@ -345,7 +368,7 @@ export const createResumeAction = (payload: Payload) => {
       [`step_${action?.step}_input`]: input,
     }
 
-    await payload.db.execute({
+    await db.execute({
       query: `
         ALTER TABLE actions
         UPDATE
@@ -360,7 +383,7 @@ export const createResumeAction = (payload: Payload) => {
         id,
         context: JSON.stringify(newContext),
         now,
-        ns: payload.db.namespace,
+        ns: db.namespace,
       },
     })
   }
@@ -379,13 +402,15 @@ export const createGetDocumentActions = (payload: Payload) => {
     docId: string
     status?: string[]
   }): Promise<ActionRecord[]> => {
-    if (typeof payload.db.execute !== 'function') {
+    const db = payload.db as unknown as ClickHouseDb
+
+    if (typeof db.execute !== 'function') {
       return []
     }
 
     const statusFilter = status?.length ? 'AND status IN ({status:Array(String)})' : ''
 
-    return await payload.db.execute<ActionRecord>({
+    return await db.execute<ActionRecord>({
       query: `
         SELECT *
         FROM actions
@@ -398,7 +423,7 @@ export const createGetDocumentActions = (payload: Payload) => {
       query_params: {
         collection,
         docId,
-        ns: payload.db.namespace,
+        ns: db.namespace,
         status: status || [],
       },
     })
@@ -416,13 +441,15 @@ export const createGetAssignedTasks = (payload: Payload) => {
     userId: string
     waitingFor?: string
   }): Promise<ActionRecord[]> => {
-    if (typeof payload.db.execute !== 'function') {
+    const db = payload.db as unknown as ClickHouseDb
+
+    if (typeof db.execute !== 'function') {
       return []
     }
 
     const waitingForFilter = waitingFor ? 'AND waitingFor = {waitingFor:String}' : ''
 
-    return await payload.db.execute<ActionRecord>({
+    return await db.execute<ActionRecord>({
       query: `
         SELECT *
         FROM actions
@@ -433,7 +460,7 @@ export const createGetAssignedTasks = (payload: Payload) => {
         ORDER BY priority DESC, createdAt ASC
       `,
       query_params: {
-        ns: payload.db.namespace,
+        ns: db.namespace,
         userId,
         waitingFor: waitingFor || '',
       },

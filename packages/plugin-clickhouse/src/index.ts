@@ -89,12 +89,13 @@ export const clickhousePlugin =
     // Inject search hooks into tracked collections
     if (config.search !== false && typeof config.search === 'object' && config.search.collections) {
       const searchConfig = config.search
-      const trackedCollections = Object.keys(searchConfig.collections)
+      const collectionConfigs = searchConfig.collections!
+      const trackedCollections = Object.keys(collectionConfigs)
 
       for (let i = 0; i < collections.length; i++) {
         const collection = collections[i]
         if (collection && trackedCollections.includes(collection.slug)) {
-          const collectionSearchConfig = searchConfig.collections[collection.slug]
+          const collectionSearchConfig = collectionConfigs[collection.slug]
           if (collectionSearchConfig) {
             collections[i] = {
               ...collection,
@@ -127,15 +128,21 @@ export const clickhousePlugin =
       if (eventsConfig?.trackCRUD !== false) {
         for (let i = 0; i < collections.length; i++) {
           const collection = collections[i]
-          if (!collection) {continue}
+          if (!collection) {
+            continue
+          }
 
           // Skip plugin-generated collections
           const pluginSlugs = ['search', 'events', 'relationships', 'actions', 'data']
-          if (pluginSlugs.includes(collection.slug)) {continue}
+          if (pluginSlugs.includes(collection.slug)) {
+            continue
+          }
 
           // Check collection-specific config
           const collectionConfig = eventsConfig?.collections?.[collection.slug]
-          if (collectionConfig?.track === false) {continue}
+          if (collectionConfig?.track === false) {
+            continue
+          }
 
           collections[i] = {
             ...collection,

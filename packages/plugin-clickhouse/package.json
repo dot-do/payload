@@ -45,7 +45,9 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
-  "dependencies": {},
+  "dependencies": {
+    "nanoid": "^5.0.9"
+  },
   "devDependencies": {
     "@payloadcms/eslint-config": "workspace:*",
     "payload": "workspace:*"

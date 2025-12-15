@@ -8,12 +8,27 @@ interface TrackEventArgs {
   eventConfig?: EventsCollectionConfig
 }
 
+// Type for ClickHouse adapter methods (not all adapters have these)
+interface ClickHouseDb {
+  logEvent: (args: {
+    collection?: string
+    docId?: string
+    input?: Record<string, unknown>
+    ip?: string
+    result?: Record<string, unknown>
+    sessionId?: string
+    type: string
+    userId?: string
+  }) => Promise<unknown>
+}
+
 export const trackAfterChange =
   ({ collectionSlug, eventConfig }: TrackEventArgs): CollectionAfterChangeHook =>
   async ({ doc, operation, previousDoc, req }) => {
     const { payload } = req
+    const db = payload.db as unknown as ClickHouseDb
 
-    if (typeof payload.db.logEvent !== 'function') {
+    if (typeof db.logEvent !== 'function') {
       return doc
     }
 
@@ -21,7 +36,7 @@ export const trackAfterChange =
     const includeInput = eventConfig?.includeInput !== false
 
     try {
-      await payload.db.logEvent({
+      await db.logEvent({
         type: eventType,
         collection: collectionSlug,
         docId: String(doc.id),
@@ -45,13 +60,14 @@ export const trackAfterDelete =
   ({ collectionSlug, eventConfig }: TrackEventArgs): CollectionAfterDeleteHook =>
   async ({ id, doc, req }) => {
     const { payload } = req
+    const db = payload.db as unknown as ClickHouseDb
 
-    if (typeof payload.db.logEvent !== 'function') {
+    if (typeof db.logEvent !== 'function') {
       return doc
     }
 
     try {
-      await payload.db.logEvent({
+      await db.logEvent({
         type: 'doc.delete',
         collection: collectionSlug,
         docId: String(id),

@@ -1,8 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
+  "references": [{ "path": "../payload" }],
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "lib": ["ES2022"]
   },
   "include": ["src/**/*"]
 }

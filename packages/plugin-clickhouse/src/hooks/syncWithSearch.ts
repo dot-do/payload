@@ -9,6 +9,15 @@ interface SyncWithSearchArgs {
   searchConfig: SearchCollectionConfig
 }
 
+// Type for ClickHouse adapter methods (not all adapters have these)
+interface ClickHouseDb {
+  syncToSearch: (args: {
+    chunkIndex: number
+    collection: string
+    doc: Record<string, unknown>
+  }) => Promise<unknown>
+}
+
 /**
  * Extract text from a document based on configured fields
  */
@@ -63,9 +72,10 @@ export const syncWithSearch =
   }: SyncWithSearchArgs): CollectionAfterChangeHook =>
   async ({ doc, req }) => {
     const { payload } = req
+    const db = payload.db as unknown as ClickHouseDb
 
     // Check if db adapter has syncToSearch
-    if (typeof payload.db.syncToSearch !== 'function') {
+    if (typeof db.syncToSearch !== 'function') {
       payload.logger.warn('syncToSearch not available on database adapter - skipping search sync')
       return doc
     }
@@ -80,7 +90,7 @@ export const syncWithSearch =
       const chunks = chunkText(text, chunkSize, chunkOverlap)
 
       for (let i = 0; i < chunks.length; i++) {
-        await payload.db.syncToSearch({
+        await db.syncToSearch({
           chunkIndex: i,
           collection: collectionSlug,
           doc: {
