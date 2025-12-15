@@ -53,6 +53,28 @@ ORDER BY (ns, type, id, v)
 }
 
 /**
+ * Generate SQL to create the relationships table if it doesn't exist
+ */
+function getCreateRelationshipsTableSQL(tableName: string): string {
+  validateTableName(tableName)
+  return `
+CREATE TABLE IF NOT EXISTS ${tableName}_relationships (
+    ns String,
+    fromType String,
+    fromId String,
+    fromField String,
+    toType String,
+    toId String,
+    position UInt16 DEFAULT 0,
+    locale Nullable(String),
+    v DateTime64(3, 'UTC'),
+    deletedAt Nullable(DateTime64(3, 'UTC'))
+) ENGINE = ReplacingMergeTree(v)
+ORDER BY (ns, toType, toId, fromType, fromId, fromField, position)
+`
+}
+
+/**
  * Connect to ClickHouse and create the database and data table if needed
  */
 export const connect: Connect = async function connect(this: ClickHouseAdapter): Promise<void> {
@@ -121,11 +143,20 @@ export const connect: Connect = async function connect(this: ClickHouseAdapter):
     query: getCreateTableSQL(this.table),
   })
 
+  // Create the relationships table if it doesn't exist
+  await this.clickhouse.command({
+    query: getCreateRelationshipsTableSQL(this.table),
+  })
+
   // Delete data for current namespace if PAYLOAD_DROP_DATABASE is set (for tests)
   if (process.env.PAYLOAD_DROP_DATABASE === 'true') {
     this.payload.logger.info(`---- DROPPING DATA FOR NAMESPACE ${this.namespace} ----`)
     await this.clickhouse.command({
       query: `DELETE FROM ${this.table} WHERE ns = {ns:String}`,
+      query_params: { ns: this.namespace },
+    })
+    await this.clickhouse.command({
+      query: `DELETE FROM ${this.table}_relationships WHERE ns = {ns:String}`,
       query_params: { ns: this.namespace },
     })
     this.payload.logger.info('---- DROPPED NAMESPACE DATA ----')
