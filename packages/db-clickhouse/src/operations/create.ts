@@ -11,11 +11,11 @@ export const create: Create = async function create(
   this: ClickHouseAdapter,
   args: CreateArgs,
 ): Promise<Document> {
-  const { collection: collectionSlug, data, req } = args
+  const { collection: collectionSlug, data, req, returning = true } = args
 
   assertValidSlug(collectionSlug, 'collection')
 
-  if (!this.client) {
+  if (!this.clickhouse) {
     throw new Error('ClickHouse client not connected')
   }
 
@@ -29,17 +29,22 @@ export const create: Create = async function create(
   const titleField = collection.config.admin?.useAsTitle
   const title = extractTitle(data, titleField, id)
   const userId = req?.user?.id ? String(req.user.id) : null
+  const hasTimestamps = collection.config.timestamps !== false
 
-  const { id: _id, createdAt, updatedAt, ...docData } = data
+  const { id: _id, createdAt: userCreatedAt, updatedAt: userUpdatedAt, ...docData } = data
+
+  // Respect user-provided timestamps, or use current time
+  const createdAtValue = userCreatedAt ? new Date(userCreatedAt as string).getTime() : now
+  const updatedAtValue = userUpdatedAt ? new Date(userUpdatedAt as string).getTime() : now
 
   const params: QueryParams = {
     id,
     type: collectionSlug,
-    createdAt: now,
+    createdAt: hasTimestamps ? createdAtValue : now,
     data: JSON.stringify(docData),
     ns: this.namespace,
     title,
-    updatedAt: now,
+    updatedAt: hasTimestamps ? updatedAtValue : now,
     v: now,
   }
 
@@ -67,16 +72,25 @@ export const create: Create = async function create(
     )
   `
 
-  await this.client.command({
+  await this.clickhouse.command({
     query,
     query_params: params,
   })
 
+  // If returning is false, return null to skip building the response document
+  if (!returning) {
+    return null as unknown as Document
+  }
+
   const result: Document = {
     id,
     ...docData,
-    createdAt: new Date(now).toISOString(),
-    updatedAt: new Date(now).toISOString(),
+  }
+
+  // Only add timestamps if the collection has timestamps enabled
+  if (hasTimestamps) {
+    result.createdAt = new Date(createdAtValue).toISOString()
+    result.updatedAt = new Date(updatedAtValue).toISOString()
   }
 
   return result

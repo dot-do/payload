@@ -14,6 +14,60 @@ export interface ParameterizedQuery {
 }
 
 /**
+ * GeoJSON coordinate type - [longitude, latitude]
+ */
+type GeoJSONCoordinate = [number, number]
+
+/**
+ * GeoJSON Polygon type
+ */
+interface GeoJSONPolygon {
+  coordinates: GeoJSONCoordinate[][]
+  type: 'Polygon'
+}
+
+/**
+ * Validate a GeoJSON coordinate pair [longitude, latitude]
+ */
+function isValidCoordinate(coord: unknown): coord is GeoJSONCoordinate {
+  if (!Array.isArray(coord) || coord.length < 2) {
+    return false
+  }
+  const [lng, lat] = coord
+  return (
+    typeof lng === 'number' &&
+    typeof lat === 'number' &&
+    !Number.isNaN(lng) &&
+    !Number.isNaN(lat) &&
+    Number.isFinite(lng) &&
+    Number.isFinite(lat) &&
+    lng >= -180 &&
+    lng <= 180 &&
+    lat >= -90 &&
+    lat <= 90
+  )
+}
+
+/**
+ * Validate a GeoJSON Polygon
+ */
+function isValidPolygon(value: unknown): value is GeoJSONPolygon {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const geo = value as Record<string, unknown>
+  if (geo.type !== 'Polygon' || !Array.isArray(geo.coordinates)) {
+    return false
+  }
+  const ring = geo.coordinates[0]
+  if (!Array.isArray(ring) || ring.length < 3) {
+    return false
+  }
+  // Validate each coordinate in the ring
+  return ring.every(isValidCoordinate)
+}
+
+/**
  * QueryBuilder creates parameterized SQL queries for ClickHouse
  * Uses {param:Type} syntax for safe parameter binding
  */
@@ -46,30 +100,71 @@ export class QueryBuilder {
         if (value === null || value === undefined) {
           return `${path} IS NULL`
         }
+        // Cast JSON fields to String for string comparisons only
+        // Boolean and number comparisons should work directly
+        if (path.startsWith('data.') && typeof value === 'string') {
+          return `toString(${path}) = ${this.addParam(value)}`
+        }
         return `${path} = ${this.addParam(value)}`
 
       case 'exists':
         return value === true ? `${path} IS NOT NULL` : `${path} IS NULL`
 
-      case 'greater_than':
-        return `${path} > ${this.addParam(value)}`
+      case 'greater_than': {
+        const gtParam = this.addDatetimeParam(path, value)
+        return `${path} > ${gtParam}`
+      }
 
-      case 'greater_than_equal':
-        return `${path} >= ${this.addParam(value)}`
+      case 'greater_than_equal': {
+        const gteParam = this.addDatetimeParam(path, value)
+        return `${path} >= ${gteParam}`
+      }
 
       case 'in': {
         if (!Array.isArray(value) || value.length === 0) {
           return '1=0'
         }
         const inValues = value.map((v) => this.addParam(v)).join(', ')
-        return `${path} IN (${inValues})`
+        // Cast JSON fields to String only for string values
+        const hasStringValues = value.some((v) => typeof v === 'string')
+        const inFieldExpr = path.startsWith('data.') && hasStringValues ? `toString(${path})` : path
+        return `${inFieldExpr} IN (${inValues})`
       }
 
-      case 'less_than':
-        return `${path} < ${this.addParam(value)}`
+      case 'intersects':
+      // falls through
+      case 'within': {
+        // GeoJSON format: { type: 'Polygon', coordinates: [[[lng, lat], ...]] }
+        // Uses pointInPolygon to check if point is inside polygon
+        if (!isValidPolygon(value)) {
+          return '1=1'
+        }
+        const ring = value.coordinates[0]!
+        // GeoJSON coordinates are [lng, lat] = (x, y), which is what pointInPolygon expects
+        // Use parameterized values for each coordinate to prevent injection
+        const polygonPoints = ring
+          .map((coord) => {
+            const lngParam = this.addParam(coord[0])
+            const latParam = this.addParam(coord[1])
+            return `(${lngParam}, ${latParam})`
+          })
+          .join(', ')
+        // Point is stored as [lng, lat] array in JSON (GeoJSON convention)
+        // Cast JSON to String first (Dynamic->String), then parse as Array
+        const withinPointLon = `JSONExtractFloat(toString(${path}), 1)`
+        const withinPointLat = `JSONExtractFloat(toString(${path}), 2)`
+        return `pointInPolygon((${withinPointLon}, ${withinPointLat}), [${polygonPoints}]) = 1`
+      }
 
-      case 'less_than_equal':
-        return `${path} <= ${this.addParam(value)}`
+      case 'less_than': {
+        const ltParam = this.addDatetimeParam(path, value)
+        return `${path} < ${ltParam}`
+      }
+
+      case 'less_than_equal': {
+        const lteParam = this.addDatetimeParam(path, value)
+        return `${path} <= ${lteParam}`
+      }
 
       case 'like':
         if (typeof value !== 'string') {
@@ -77,15 +172,53 @@ export class QueryBuilder {
         }
         // Use ILIKE for case-insensitive matching with parameterized value
         return `${path} ILIKE concat('%', ${this.addParam(value)}, '%')`
-
-      case 'near':
-        // eslint-disable-next-line no-console
-        console.warn('Near operator not fully implemented for ClickHouse')
-        return '1=1'
+      case 'near': {
+        // Format: 'lng, lat, maxDistance, minDistance' (GeoJSON convention: longitude first)
+        // Uses geoDistance(lon1, lat1, lon2, lat2) which expects longitude first
+        if (typeof value !== 'string') {
+          return '1=1'
+        }
+        const parts = value.split(',').map((p) => parseFloat(p.trim()))
+        if (parts.length < 3) {
+          return '1=1'
+        }
+        const [centerLon, centerLat, maxDistance, minDistance = 0] = parts
+        // Validate all numeric values
+        if (
+          !Number.isFinite(centerLon!) ||
+          !Number.isFinite(centerLat!) ||
+          !Number.isFinite(maxDistance!) ||
+          !Number.isFinite(minDistance)
+        ) {
+          return '1=1'
+        }
+        // Validate coordinate ranges
+        if (centerLon! < -180 || centerLon! > 180 || centerLat! < -90 || centerLat! > 90) {
+          return '1=1'
+        }
+        // Validate distance values
+        if (maxDistance! < 0 || minDistance < 0 || minDistance > maxDistance!) {
+          return '1=1'
+        }
+        const lonParam = this.addParam(centerLon)
+        const latParam = this.addParam(centerLat)
+        const maxDistParam = this.addParam(maxDistance)
+        const minDistParam = this.addParam(minDistance)
+        // Point is stored as [lng, lat] array in JSON (GeoJSON convention)
+        // Cast JSON to String first (Dynamic->String), then parse as Array
+        const pointLon = `JSONExtractFloat(toString(${path}), 1)`
+        const pointLat = `JSONExtractFloat(toString(${path}), 2)`
+        // geoDistance expects: (lon1, lat1, lon2, lat2) - returns meters
+        return `geoDistance(${lonParam}, ${latParam}, ${pointLon}, ${pointLat}) <= ${maxDistParam} AND geoDistance(${lonParam}, ${latParam}, ${pointLon}, ${pointLat}) >= ${minDistParam}`
+      }
 
       case 'not_equals':
         if (value === null || value === undefined) {
           return `${path} IS NOT NULL`
+        }
+        // Cast JSON fields to String for string comparisons only
+        if (path.startsWith('data.') && typeof value === 'string') {
+          return `toString(${path}) != ${this.addParam(value)}`
         }
         return `${path} != ${this.addParam(value)}`
 
@@ -94,12 +227,16 @@ export class QueryBuilder {
           return '1=1'
         }
         const notInValues = value.map((v) => this.addParam(v)).join(', ')
-        return `${path} NOT IN (${notInValues})`
+        // Cast JSON fields to String only for string values
+        const hasNotInStringValues = value.some((v) => typeof v === 'string')
+        const notInFieldExpr =
+          path.startsWith('data.') && hasNotInStringValues ? `toString(${path})` : path
+        return `${notInFieldExpr} NOT IN (${notInValues})`
       }
 
       default:
-        // eslint-disable-next-line no-console
-        console.warn(`Unknown operator: ${operator}`)
+        // Unknown operators return a true condition to avoid breaking queries
+        // This is intentional - unknown operators are filtered out safely
         return '1=1'
     }
   }
@@ -155,6 +292,8 @@ export class QueryBuilder {
       'less_than',
       'less_than_equal',
       'near',
+      'within',
+      'intersects',
     ]
 
     for (const [operator, value] of Object.entries(operators)) {
@@ -220,6 +359,25 @@ export class QueryBuilder {
     }
 
     return `data.${sanitized}`
+  }
+
+  /**
+   * Add a parameter for datetime comparison, converting ISO strings to DateTime64
+   * for datetime columns (createdAt, updatedAt, deletedAt, v)
+   */
+  addDatetimeParam(field: string, value: unknown): string {
+    const datetimeFields = ['createdAt', 'updatedAt', 'deletedAt', 'v']
+    const isDatetimeField = datetimeFields.includes(field)
+
+    // If comparing a datetime field with a string (ISO format), parse it
+    if (isDatetimeField && typeof value === 'string') {
+      const name = `p${this.paramCounter++}`
+      this.params[name] = value
+      return `parseDateTimeBestEffort({${name}:String})`
+    }
+
+    // Otherwise, use the regular parameter handling
+    return this.addParam(value)
   }
 
   /**
@@ -311,6 +469,15 @@ export class QueryBuilder {
     const nsParam = this.addNamedParam('ns', ns)
     const typeParam = this.addNamedParam('type', type)
     return `ns = ${nsParam} AND type = ${typeParam} AND deletedAt IS NULL`
+  }
+
+  /**
+   * Build base WHERE without deletedAt filter (for use inside subqueries)
+   */
+  buildBaseWhereNoDeleted(ns: string, type: string): string {
+    const nsParam = this.addNamedParam('ns', ns)
+    const typeParam = this.addNamedParam('type', type)
+    return `ns = ${nsParam} AND type = ${typeParam}`
   }
 
   /**

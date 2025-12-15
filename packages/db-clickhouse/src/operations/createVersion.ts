@@ -3,12 +3,16 @@ import type { CreateVersion, CreateVersionArgs, JsonObject, TypeWithVersion } fr
 import type { QueryParams } from '../queries/QueryBuilder.js'
 import type { ClickHouseAdapter } from '../types.js'
 
-import { generateId, generateVersion } from '../utilities/generateId.js'
+import { generateVersion } from '../utilities/generateId.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
 import { extractTitle } from '../utilities/transform.js'
 
-const VERSIONS_TYPE_PREFIX = '_versions_'
-
+/**
+ * Create a new version of a document.
+ *
+ * ClickHouse-native versioning: versions are stored as rows with the same (ns, type, id)
+ * but different `v` timestamps. The `v` timestamp serves as the version identifier.
+ */
 export const createVersion: CreateVersion = async function createVersion<
   T extends JsonObject = JsonObject,
 >(this: ClickHouseAdapter, args: CreateVersionArgs<T>): Promise<TypeWithVersion<T>> {
@@ -16,7 +20,7 @@ export const createVersion: CreateVersion = async function createVersion<
 
   assertValidSlug(collectionSlug, 'collection')
 
-  if (!this.client) {
+  if (!this.clickhouse) {
     throw new Error('ClickHouse client not connected')
   }
 
@@ -25,22 +29,18 @@ export const createVersion: CreateVersion = async function createVersion<
     throw new Error(`Collection '${collectionSlug}' not found`)
   }
 
-  const versionId = generateId(this.idType)
   const now = generateVersion()
   const titleField = collection.config.admin?.useAsTitle
-  const title = extractTitle(versionData as Record<string, unknown>, titleField, versionId)
+  const title = extractTitle(versionData as Record<string, unknown>, titleField, String(parent))
   const userId = req?.user?.id ? String(req.user.id) : null
 
-  // Store parent ID in data - latest is computed dynamically via max(v)
-  const versionDoc = {
-    ...versionData,
-    _autosave: autosave || false,
-    _parentId: parent,
-  }
+  // Store autosave flag in data if needed
+  const versionDoc = autosave ? { ...versionData, _autosave: true } : versionData
 
+  // Use parent as the document id - versions share the same id with different v
   const params: QueryParams = {
-    id: versionId,
-    type: `${VERSIONS_TYPE_PREFIX}${collectionSlug}`,
+    id: String(parent),
+    type: collectionSlug,
     createdAt: now,
     data: JSON.stringify(versionDoc),
     ns: this.namespace,
@@ -72,15 +72,16 @@ export const createVersion: CreateVersion = async function createVersion<
     )
   `
 
-  await this.client.command({
+  await this.clickhouse.command({
     query: insertQuery,
     query_params: params,
   })
 
+  // Return version with v timestamp as the version id
   const result: TypeWithVersion<T> = {
-    id: versionId,
+    id: String(now),
     createdAt: createdAt || new Date(now).toISOString(),
-    parent: typeof parent === 'number' ? parent : parent,
+    parent,
     updatedAt: updatedAt || new Date(now).toISOString(),
     version: versionData,
   }

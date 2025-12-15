@@ -5,8 +5,14 @@ import type { ClickHouseAdapter } from '../types.js'
 import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
 
-const GLOBAL_VERSIONS_TYPE_PREFIX = '_global_versions_'
+const GLOBAL_TYPE_PREFIX = '_global_'
 
+/**
+ * Count versions of a global.
+ *
+ * ClickHouse-native versioning: versions are rows with the same (ns, type, id)
+ * but different `v` timestamps.
+ */
 export const countGlobalVersions: CountGlobalVersions = async function countGlobalVersions(
   this: ClickHouseAdapter,
   args: CountGlobalVersionArgs,
@@ -15,15 +21,15 @@ export const countGlobalVersions: CountGlobalVersions = async function countGlob
 
   assertValidSlug(globalSlug, 'global')
 
-  if (!this.client) {
+  if (!this.clickhouse) {
     throw new Error('ClickHouse client not connected')
   }
 
-  const versionType = `${GLOBAL_VERSIONS_TYPE_PREFIX}${globalSlug}`
+  const globalType = `${GLOBAL_TYPE_PREFIX}${globalSlug}`
 
   const qb = new QueryBuilder()
   const nsParam = qb.addNamedParam('ns', this.namespace)
-  const typeParam = qb.addNamedParam('versionType', versionType)
+  const typeParam = qb.addNamedParam('type', globalType)
   const baseWhere = `ns = ${nsParam} AND type = ${typeParam} AND deletedAt IS NULL`
 
   const additionalWhere = qb.buildWhereClause(where as any)
@@ -32,17 +38,17 @@ export const countGlobalVersions: CountGlobalVersions = async function countGlob
 
   const query = `
     SELECT count() as total
-    FROM ${this.table} FINAL
+    FROM ${this.table}
     WHERE ${whereClause}
   `
 
-  const result = await this.client.query({
+  const result = await this.clickhouse.query({
     format: 'JSONEachRow',
     query,
     query_params: params,
   })
 
-  const rows = (await result.json())
+  const rows = await result.json<{ total: string }>()
   const totalDocs = parseInt(rows[0]?.total || '0', 10)
 
   return { totalDocs }

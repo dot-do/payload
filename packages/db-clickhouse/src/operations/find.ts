@@ -15,14 +15,15 @@ export const find: Find = async function find<T = TypeWithID>(
 
   assertValidSlug(collectionSlug, 'collection')
 
-  if (!this.client) {
+  if (!this.clickhouse) {
     throw new Error('ClickHouse client not connected')
   }
 
   const qb = new QueryBuilder()
-  const baseWhere = qb.buildBaseWhere(this.namespace, collectionSlug)
+  // Build base WHERE without deletedAt (for use inside subquery)
+  const baseWhereInner = qb.buildBaseWhereNoDeleted(this.namespace, collectionSlug)
   const additionalWhere = qb.buildWhereClause(where as any)
-  const whereClause = combineWhere(baseWhere, additionalWhere)
+  const innerWhereClause = combineWhere(baseWhereInner, additionalWhere)
   const params = qb.getParams()
 
   let sortString: string | undefined
@@ -37,41 +38,55 @@ export const find: Find = async function find<T = TypeWithID>(
   }
 
   const orderBy = buildOrderBy(sortString)
-  const effectiveLimit = pagination ? limit : 0
+  // When pagination is disabled, still respect limit if explicitly set (for bulk operations)
+  // A limit of 0 means no limit (return all)
+  const effectiveLimit = pagination ? limit : limit > 0 ? limit : 0
   const effectivePage = pagination ? page : 1
   const limitOffset = buildLimitOffset(effectiveLimit, effectivePage)
 
+  // Use window function to get latest version per document
+  // Apply deletedAt filter AFTER window function so soft-deleted docs are properly excluded
+  // Note: We don't use FINAL because ORDER BY includes v, so each version is unique
   const query = `
-    SELECT *
-    FROM ${this.table} FINAL
-    WHERE ${whereClause}
+    SELECT * EXCEPT(_rn)
+    FROM (
+      SELECT *, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
+      FROM ${this.table}
+      WHERE ${innerWhereClause}
+    )
+    WHERE _rn = 1 AND deletedAt IS NULL
     ${orderBy}
     ${limitOffset}
   `
 
-  const result = await this.client.query({
+  const result = await this.clickhouse.query({
     format: 'JSONEachRow',
     query,
     query_params: params,
   })
 
-  const rows = (await result.json())
+  const rows = await result.json<DataRow>()
   const parsedRows = rows.map(parseDataRow)
   const docs = rowsToDocuments<T & TypeWithID>(parsedRows) as T[]
 
+  // Count only the latest versions (not all versions), excluding soft-deleted
   const countQuery = `
     SELECT count() as total
-    FROM ${this.table} FINAL
-    WHERE ${whereClause}
+    FROM (
+      SELECT id, deletedAt, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
+      FROM ${this.table}
+      WHERE ${innerWhereClause}
+    )
+    WHERE _rn = 1 AND deletedAt IS NULL
   `
 
-  const countResult = await this.client.query({
+  const countResult = await this.clickhouse.query({
     format: 'JSONEachRow',
     query: countQuery,
     query_params: params,
   })
 
-  const countRows = (await countResult.json())
+  const countRows = await countResult.json<{ total: string }>()
   const totalDocs = parseInt(countRows[0]?.total || '0', 10)
   const totalPages = effectiveLimit > 0 ? Math.ceil(totalDocs / effectiveLimit) : 1
   const hasNextPage = effectivePage < totalPages

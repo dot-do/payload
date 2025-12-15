@@ -53,7 +53,9 @@ export function buildOrderBy(sort: string | undefined): string {
   const orderParts: string[] = []
 
   for (const field of fields) {
-    if (!field) {continue}
+    if (!field) {
+      continue
+    }
 
     let direction = 'ASC'
     let fieldName = field
@@ -64,7 +66,9 @@ export function buildOrderBy(sort: string | undefined): string {
     }
 
     const path = getFieldPath(fieldName)
-    orderParts.push(`${path} ${direction}`)
+    // Wrap data.* fields in toString() to avoid "Dynamic type not allowed in ORDER BY" error
+    const sortExpr = path.startsWith('data.') ? `toString(${path})` : path
+    orderParts.push(`${sortExpr} ${direction}`)
   }
 
   if (orderParts.length === 0) {

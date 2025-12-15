@@ -15,7 +15,7 @@ export const createGlobal: CreateGlobal = async function createGlobal<
 
   assertValidSlug(slug, 'global')
 
-  if (!this.client) {
+  if (!this.clickhouse) {
     throw new Error('ClickHouse client not connected')
   }
 
@@ -58,7 +58,7 @@ export const createGlobal: CreateGlobal = async function createGlobal<
     )
   `
 
-  await this.client.command({
+  await this.clickhouse.command({
     query: insertQuery,
     query_params: params,
   })

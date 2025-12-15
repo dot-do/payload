@@ -5,7 +5,7 @@ import type { ClickHouseAdapter, DataRow } from '../types.js'
 
 import { generateVersion } from '../utilities/generateId.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
-import { parseDataRow } from '../utilities/transform.js'
+import { deepMerge, parseDataRow, parseDateTime64ToMs } from '../utilities/transform.js'
 
 const GLOBALS_TYPE = '_globals'
 
@@ -16,7 +16,7 @@ export const updateGlobal: UpdateGlobal = async function updateGlobal<
 
   assertValidSlug(slug, 'global')
 
-  if (!this.client) {
+  if (!this.clickhouse) {
     throw new Error('ClickHouse client not connected')
   }
 
@@ -26,23 +26,27 @@ export const updateGlobal: UpdateGlobal = async function updateGlobal<
     ns: this.namespace,
   }
 
+  // Use window function, filter deletedAt after
   const findQuery = `
-    SELECT *
-    FROM ${this.table} FINAL
-    WHERE ns = {ns:String}
-      AND type = {type:String}
-      AND id = {id:String}
-      AND deletedAt IS NULL
+    SELECT * EXCEPT(_rn)
+    FROM (
+      SELECT *, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
+      FROM ${this.table}
+      WHERE ns = {ns:String}
+        AND type = {type:String}
+        AND id = {id:String}
+    )
+    WHERE _rn = 1 AND deletedAt IS NULL
     LIMIT 1
   `
 
-  const findResult = await this.client.query({
+  const findResult = await this.clickhouse.query({
     format: 'JSONEachRow',
     query: findQuery,
     query_params: findParams,
   })
 
-  const existingRows = (await findResult.json())
+  const existingRows = await findResult.json<DataRow>()
   const existingRow = existingRows[0]
   const existing = existingRow ? parseDataRow(existingRow) : null
 
@@ -51,35 +55,29 @@ export const updateGlobal: UpdateGlobal = async function updateGlobal<
   const { id: _id, createdAt, updatedAt, ...updateData } = data as Record<string, unknown>
 
   let mergedData: Record<string, unknown>
-  let existingCreatedAt: number | string
+  let createdAtMs: number
   let existingCreatedBy: null | string
 
   if (existing) {
     const existingData = existing.data
-    mergedData = { ...existingData, ...updateData }
-    existingCreatedAt = existing.createdAt
+    mergedData = deepMerge(existingData, updateData)
+    createdAtMs = parseDateTime64ToMs(existing.createdAt)
     existingCreatedBy = existing.createdBy
   } else {
     mergedData = updateData
-    existingCreatedAt = now
+    createdAtMs = now
     existingCreatedBy = userId
   }
 
   const insertParams: QueryParams = {
     id: slug,
     type: GLOBALS_TYPE,
+    createdAtMs,
     data: JSON.stringify(mergedData),
     ns: this.namespace,
     title: slug,
     updatedAt: now,
     v: now,
-  }
-
-  // Handle createdAt - either from existing or new timestamp
-  if (existing) {
-    insertParams.existingCreatedAt = existingCreatedAt
-  } else {
-    insertParams.createdAt = now
   }
 
   if (existingCreatedBy) {
@@ -98,7 +96,7 @@ export const updateGlobal: UpdateGlobal = async function updateGlobal<
       fromUnixTimestamp64Milli({v:Int64}),
       {title:String},
       {data:String},
-      ${existing ? '{existingCreatedAt:String}' : 'fromUnixTimestamp64Milli({createdAt:Int64})'},
+      fromUnixTimestamp64Milli({createdAtMs:Int64}),
       ${existingCreatedBy ? '{createdBy:String}' : 'NULL'},
       fromUnixTimestamp64Milli({updatedAt:Int64}),
       ${userId !== null ? '{updatedBy:String}' : 'NULL'},
@@ -107,7 +105,7 @@ export const updateGlobal: UpdateGlobal = async function updateGlobal<
     )
   `
 
-  await this.client.command({
+  await this.clickhouse.command({
     query: insertQuery,
     query_params: insertParams,
   })
@@ -115,10 +113,8 @@ export const updateGlobal: UpdateGlobal = async function updateGlobal<
   const result = {
     id: slug,
     ...mergedData,
-    createdAt:
-      typeof existingCreatedAt === 'number'
-        ? new Date(existingCreatedAt).toISOString()
-        : existingCreatedAt,
+    createdAt: new Date(createdAtMs).toISOString(),
+    globalType: slug,
     updatedAt: new Date(now).toISOString(),
   } as unknown as T
 

@@ -41,15 +41,16 @@ export default buildConfig({
 
 ## Configuration Options
 
-| Option      | Type               | Default     | Description                                       |
-| ----------- | ------------------ | ----------- | ------------------------------------------------- |
-| `url`       | `string`           | _required_  | ClickHouse server URL (e.g., `https://host:8443`) |
-| `username`  | `string`           | `'default'` | ClickHouse username                               |
-| `password`  | `string`           | `''`        | ClickHouse password                               |
-| `database`  | `string`           | `'default'` | Database name                                     |
-| `table`     | `string`           | `'data'`    | Table name for storing all documents              |
-| `namespace` | `string`           | `'payload'` | Namespace to separate different Payload apps      |
-| `idType`    | `'text' \| 'uuid'` | `'text'`    | ID type for documents                             |
+| Option      | Type               | Default     | Description                                                             |
+| ----------- | ------------------ | ----------- | ----------------------------------------------------------------------- |
+| `url`       | `string`           | _required_  | ClickHouse server URL (e.g., `https://host:8443`)                       |
+| `username`  | `string`           | `'default'` | ClickHouse username                                                     |
+| `password`  | `string`           | `''`        | ClickHouse password                                                     |
+| `database`  | `string`           | `'default'` | Database name                                                           |
+| `table`     | `string`           | `'data'`    | Table name for storing all documents                                    |
+| `namespace` | `string`           | `'payload'` | Namespace to separate different Payload apps                            |
+| `idType`    | `'text' \| 'uuid'` | `'text'`    | ID type for documents                                                   |
+| `timezone`  | `string`           | `'UTC'`     | Timezone for DateTime handling. Use `'auto'` to detect from environment |
 
 ## Database Schema
 
@@ -105,7 +106,7 @@ ClickHouse does not support ACID transactions. This means:
 This adapter uses ClickHouse's `ReplacingMergeTree` engine:
 
 - **Background Merges**: Duplicate rows (same id) are deduplicated during background merge operations, not immediately
-- **FINAL Modifier**: All queries use `FINAL` to get the latest version, which adds overhead
+- **Window Functions**: Queries use window functions (`row_number() OVER PARTITION BY`) to get the latest version per document
 - **Read-After-Write**: Immediately reading data after writing may return stale results until merges complete
 - **Not Real-Time**: ClickHouse prioritizes batch analytics over real-time consistency
 

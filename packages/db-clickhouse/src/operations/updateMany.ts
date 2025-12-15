@@ -6,17 +6,23 @@ import type { ClickHouseAdapter, DataRow } from '../types.js'
 import { combineWhere, QueryBuilder } from '../queries/QueryBuilder.js'
 import { generateVersion } from '../utilities/generateId.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
-import { extractTitle, parseDataRow } from '../utilities/transform.js'
+import {
+  deepMerge,
+  extractTitle,
+  parseDataRow,
+  parseDateTime64ToMs,
+  toISOString,
+} from '../utilities/transform.js'
 
 export const updateMany: UpdateMany = async function updateMany(
   this: ClickHouseAdapter,
   args: UpdateManyArgs,
 ): Promise<Document[]> {
-  const { collection: collectionSlug, data, req, where } = args
+  const { collection: collectionSlug, data, limit, req, where } = args
 
   assertValidSlug(collectionSlug, 'collection')
 
-  if (!this.client) {
+  if (!this.clickhouse) {
     throw new Error('ClickHouse client not connected')
   }
 
@@ -26,24 +32,32 @@ export const updateMany: UpdateMany = async function updateMany(
   }
 
   const qb = new QueryBuilder()
-  const baseWhere = qb.buildBaseWhere(this.namespace, collectionSlug)
+  const baseWhereInner = qb.buildBaseWhereNoDeleted(this.namespace, collectionSlug)
   const additionalWhere = qb.buildWhereClause(where as any)
-  const whereClause = combineWhere(baseWhere, additionalWhere)
+  const innerWhereClause = combineWhere(baseWhereInner, additionalWhere)
   const findParams = qb.getParams()
 
+  // Use window function, filter deletedAt after
+  // Apply limit if specified
+  const limitClause = limit && limit > 0 ? `LIMIT ${limit}` : ''
   const findQuery = `
-    SELECT *
-    FROM ${this.table} FINAL
-    WHERE ${whereClause}
+    SELECT * EXCEPT(_rn)
+    FROM (
+      SELECT *, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
+      FROM ${this.table}
+      WHERE ${innerWhereClause}
+    )
+    WHERE _rn = 1 AND deletedAt IS NULL
+    ${limitClause}
   `
 
-  const findResult = await this.client.query({
+  const findResult = await this.clickhouse.query({
     format: 'JSONEachRow',
     query: findQuery,
     query_params: findParams,
   })
 
-  const existingRows = (await findResult.json())
+  const existingRows = await findResult.json<DataRow>()
 
   if (existingRows.length === 0) {
     return []
@@ -58,14 +72,16 @@ export const updateMany: UpdateMany = async function updateMany(
   const operations = existingRows.map((row) => {
     const existing = parseDataRow(row)
     const existingData = existing.data
-    const mergedData = { ...existingData, ...updateData }
+    const mergedData = deepMerge(existingData, updateData)
     const title = extractTitle(mergedData, titleField, existing.id)
+
+    const createdAtMs = parseDateTime64ToMs(existing.createdAt)
 
     const insertParams: QueryParams = {
       id: existing.id,
       type: existing.type,
+      createdAtMs,
       data: JSON.stringify(mergedData),
-      existingCreatedAt: existing.createdAt,
       ns: existing.ns,
       title,
       updatedAt: now,
@@ -88,7 +104,7 @@ export const updateMany: UpdateMany = async function updateMany(
         fromUnixTimestamp64Milli({v:Int64}),
         {title:String},
         {data:String},
-        {existingCreatedAt:String},
+        fromUnixTimestamp64Milli({createdAtMs:Int64}),
         ${existing.createdBy ? '{createdBy:String}' : 'NULL'},
         fromUnixTimestamp64Milli({updatedAt:Int64}),
         ${userId !== null ? '{updatedBy:String}' : 'NULL'},
@@ -101,7 +117,7 @@ export const updateMany: UpdateMany = async function updateMany(
       doc: {
         id: existing.id,
         ...mergedData,
-        createdAt: existing.createdAt,
+        createdAt: toISOString(existing.createdAt),
         updatedAt: new Date(now).toISOString(),
       } as Document,
       params: insertParams,
@@ -112,7 +128,7 @@ export const updateMany: UpdateMany = async function updateMany(
   // Execute all inserts in parallel
   await Promise.all(
     operations.map((op) =>
-      this.client!.command({
+      this.clickhouse!.command({
         query: op.query,
         query_params: op.params,
       }),

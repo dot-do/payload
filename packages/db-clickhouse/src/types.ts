@@ -2,10 +2,37 @@ import type { ClickHouseClient } from '@clickhouse/client-web'
 import type {
   BaseDatabaseAdapter,
   CollectionSlug,
+  Document,
   Payload,
   PayloadRequest,
   TypeWithID,
+  Where,
 } from 'payload'
+
+/**
+ * Arguments for raw query execution
+ */
+export interface ExecuteArgs<T = unknown> {
+  /** The SQL query to execute */
+  query: string
+  /** Query parameters for parameterized queries */
+  query_params?: Record<string, unknown>
+}
+
+/**
+ * Arguments for bulk upsert operation
+ */
+export interface UpsertManyArgs {
+  /** Collection slug */
+  collection: CollectionSlug
+  /** Array of documents to upsert, each with data and where clause */
+  docs: Array<{
+    data: Record<string, unknown>
+    where: Where
+  }>
+  /** Request context */
+  req?: PayloadRequest
+}
 
 export interface ClickHouseAdapterArgs {
   /** Database name (default: 'default') */
@@ -18,25 +45,82 @@ export interface ClickHouseAdapterArgs {
   password?: string
   /** Table name (default: 'data') */
   table?: string
+  /** Timezone for DateTime handling (default: 'UTC'). Use 'auto' to detect from environment. */
+  timezone?: string
   /** ClickHouse server URL (e.g., 'https://host:8443') */
   url: string
   /** ClickHouse username */
   username?: string
 }
 
-export interface ClickHouseAdapter extends BaseDatabaseAdapter {
-  /** ClickHouse client instance */
-  client: ClickHouseClient | null
+export type ClickHouseAdapter = {
+  /**
+   * ClickHouse client instance for direct database access
+   * @example
+   * ```ts
+   * const result = await payload.db.clickhouse.query({
+   *   query: 'SELECT * FROM data WHERE ns = {ns:String}',
+   *   query_params: { ns: 'my-namespace' },
+   *   format: 'JSONEachRow'
+   * })
+   * ```
+   */
+  clickhouse: ClickHouseClient | null
   /** Adapter configuration */
   config: ClickHouseAdapterArgs
   /** Database name */
   database: string
+  /**
+   * Execute a raw SQL query against ClickHouse
+   * @example
+   * ```ts
+   * const rows = await payload.db.execute({
+   *   query: 'SELECT count() FROM data WHERE ns = {ns:String}',
+   *   query_params: { ns: 'my-namespace' }
+   * })
+   * ```
+   */
+  execute: <T = unknown>(args: ExecuteArgs<T>) => Promise<T[]>
   /** ID type for document IDs */
   idType: 'text' | 'uuid'
   /** Namespace for this adapter instance */
   namespace: string
   /** Table name */
   table: string
+  /**
+   * Bulk upsert operation - create or update multiple documents
+   * @example
+   * ```ts
+   * const docs = await payload.db.upsertMany({
+   *   collection: 'posts',
+   *   docs: [
+   *     { data: { title: 'Post 1' }, where: { slug: { equals: 'post-1' } } },
+   *     { data: { title: 'Post 2' }, where: { slug: { equals: 'post-2' } } },
+   *   ]
+   * })
+   * ```
+   */
+  upsertMany: (args: UpsertManyArgs) => Promise<Document[]>
+} & BaseDatabaseAdapter
+
+/**
+ * Module augmentation to expose ClickHouse-specific properties on payload.db
+ */
+declare module 'payload' {
+  export interface DatabaseAdapter extends Omit<ClickHouseAdapterArgs, 'password' | 'url'> {
+    /**
+     * ClickHouse client instance for direct database access
+     */
+    clickhouse: ClickHouseClient | null
+    /**
+     * Execute a raw SQL query against ClickHouse
+     */
+    execute: <T = unknown>(args: ExecuteArgs<T>) => Promise<T[]>
+    /**
+     * Bulk upsert operation - create or update multiple documents
+     */
+    upsertMany: (args: UpsertManyArgs) => Promise<Document[]>
+  }
 }
 
 export interface DataRow {

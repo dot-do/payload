@@ -4,34 +4,25 @@ import type { ClickHouseAdapter } from '../types.js'
 
 /**
  * Upsert a document - create if not exists, update if exists
+ *
+ * Uses updateOne with upsert option for atomic behavior matching
+ * MongoDB and Drizzle adapter patterns.
  */
 export const upsert: Upsert = async function upsert(
   this: ClickHouseAdapter,
   args: UpsertArgs,
 ): Promise<Document> {
-  const { collection, data, req, where } = args
+  const { collection, data, joins, locale, req, returning, select, where } = args
 
-  // Try to find existing document
-  const existing = await this.findOne({
+  return this.updateOne({
     collection,
+    data,
+    joins,
+    locale,
+    options: { upsert: true },
     req,
+    returning,
+    select,
     where,
   })
-
-  if (existing) {
-    // Update existing document
-    return this.updateOne({
-      collection,
-      data,
-      req,
-      where: { id: { equals: existing.id } },
-    })
-  } else {
-    // Create new document
-    return this.create({
-      collection,
-      data,
-      req,
-    })
-  }
 }

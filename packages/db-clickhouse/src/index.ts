@@ -1,6 +1,6 @@
 import type { DatabaseAdapterObj, Payload } from 'payload'
 
-import { createDatabaseAdapter, defaultBeginTransaction } from 'payload'
+import { createDatabaseAdapter } from 'payload'
 
 import type { ClickHouseAdapter, ClickHouseAdapterArgs } from './types.js'
 
@@ -18,6 +18,7 @@ import {
   deleteMany,
   deleteOne,
   deleteVersions,
+  execute,
   find,
   findDistinct,
   findGlobal,
@@ -31,9 +32,15 @@ import {
   updateOne,
   updateVersion,
   upsert,
+  upsertMany,
 } from './operations/index.js'
 
-export type { ClickHouseAdapter, ClickHouseAdapterArgs } from './types.js'
+export type {
+  ClickHouseAdapter,
+  ClickHouseAdapterArgs,
+  ExecuteArgs,
+  UpsertManyArgs,
+} from './types.js'
 
 /**
  * Create a ClickHouse database adapter for Payload CMS
@@ -72,7 +79,7 @@ export function clickhouseAdapter(args: ClickHouseAdapterArgs): DatabaseAdapterO
       packageName: '@dotdo/db-clickhouse',
 
       // ClickHouse-specific config
-      client: null,
+      clickhouse: null, // Set during connect, exposes raw client via payload.db.clickhouse
       config: { database, idType, namespace, password, table, url, username },
       database,
       idType,
@@ -119,36 +126,51 @@ export function clickhouseAdapter(args: ClickHouseAdapterArgs): DatabaseAdapterO
       // Draft queries
       queryDrafts,
 
-      // Upsert
+      // Upsert operations
       upsert,
+      upsertMany,
+
+      // Raw query execution
+      execute,
 
       // Transaction stubs - ClickHouse is an OLAP database and does not support ACID transactions
       // Operations are eventually consistent via ReplacingMergeTree
-      beginTransaction: defaultBeginTransaction(),
-      commitTransaction: async () => {
-        // eslint-disable-next-line no-console
-        console.warn(
-          '[@dotdo/db-clickhouse] commitTransaction called but ClickHouse does not support transactions. ' +
-            'Operations are eventually consistent.',
-        )
-        await Promise.resolve()
-      },
-      rollbackTransaction: async () => {
-        // eslint-disable-next-line no-console
-        console.warn(
-          '[@dotdo/db-clickhouse] rollbackTransaction called but ClickHouse does not support transactions. ' +
-            'Data may already be written and cannot be rolled back.',
-        )
-        await Promise.resolve()
-      },
+      // We implement no-op stubs so Payload operations that use transactions can still work
+      beginTransaction: () => Promise.resolve(null),
+      commitTransaction: async () => {},
+      rollbackTransaction: async () => {},
 
       // Migration stubs (no migrations needed - schemaless)
       // ClickHouse uses a schemaless JSON approach, so migrations are not needed
       createMigration: async () => {},
       migrate: async () => {},
-      migrateFresh: async () => {},
-      migrateRefresh: async () => {},
-      migrateReset: async () => {},
+      async migrateFresh(this: ClickHouseAdapter) {
+        // Delete all data for the current namespace only (lightweight delete)
+        if (this.clickhouse) {
+          await this.clickhouse.command({
+            query: `DELETE FROM ${this.table} WHERE ns = {ns:String}`,
+            query_params: { ns: this.namespace },
+          })
+        }
+      },
+      async migrateRefresh(this: ClickHouseAdapter) {
+        // Same as migrateFresh for ClickHouse
+        if (this.clickhouse) {
+          await this.clickhouse.command({
+            query: `DELETE FROM ${this.table} WHERE ns = {ns:String}`,
+            query_params: { ns: this.namespace },
+          })
+        }
+      },
+      async migrateReset(this: ClickHouseAdapter) {
+        // Same as migrateFresh for ClickHouse
+        if (this.clickhouse) {
+          await this.clickhouse.command({
+            query: `DELETE FROM ${this.table} WHERE ns = {ns:String}`,
+            query_params: { ns: this.namespace },
+          })
+        }
+      },
       migrateStatus: async () => {},
       migrationDir: '',
     })

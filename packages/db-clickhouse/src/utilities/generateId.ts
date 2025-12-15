@@ -4,6 +4,12 @@
 const ALPHABET = 'useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict'
 
 /**
+ * Monotonic counter for version timestamps to prevent collisions
+ * when multiple operations occur within the same millisecond
+ */
+let lastVersion = 0
+
+/**
  * Generate a nanoid-style ID (21 characters, URL-safe)
  * Uses crypto.getRandomValues() which is available in all modern runtimes including Cloudflare Workers
  */
@@ -35,9 +41,14 @@ export function generateId(idType: 'text' | 'uuid' = 'text'): string {
 }
 
 /**
- * Generate a version timestamp using Date.now()
- * Returns milliseconds since epoch
+ * Generate a monotonically increasing version timestamp
+ * Uses Date.now() as the base but ensures each call returns a unique value
+ * even when multiple operations occur within the same millisecond
+ *
+ * @returns Milliseconds since epoch, guaranteed to be greater than the last call
  */
 export function generateVersion(): number {
-  return Date.now()
+  const now = Date.now()
+  lastVersion = Math.max(now, lastVersion + 1)
+  return lastVersion
 }

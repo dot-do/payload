@@ -7,21 +7,19 @@ export { createGlobalVersion } from './createGlobalVersion.js'
 export { createVersion } from './createVersion.js'
 export { deleteMany } from './deleteMany.js'
 export { deleteOne } from './deleteOne.js'
-
 export { deleteVersions } from './deleteVersions.js'
+export { execute } from './execute.js'
 export { find } from './find.js'
 export { findDistinct } from './findDistinct.js'
-
 export { findGlobal } from './findGlobal.js'
 export { findGlobalVersions } from './findGlobalVersions.js'
 export { findOne } from './findOne.js'
 export { findVersions } from './findVersions.js'
 export { queryDrafts } from './queryDrafts.js'
-
 export { updateGlobal } from './updateGlobal.js'
 export { updateGlobalVersion } from './updateGlobalVersion.js'
 export { updateMany } from './updateMany.js'
 export { updateOne } from './updateOne.js'
-
 export { updateVersion } from './updateVersion.js'
 export { upsert } from './upsert.js'
+export { upsertMany } from './upsertMany.js'

@@ -13,29 +13,34 @@ export const count: Count = async function count(
 
   assertValidSlug(collectionSlug, 'collection')
 
-  if (!this.client) {
+  if (!this.clickhouse) {
     throw new Error('ClickHouse client not connected')
   }
 
   const qb = new QueryBuilder()
-  const baseWhere = qb.buildBaseWhere(this.namespace, collectionSlug)
+  const baseWhereInner = qb.buildBaseWhereNoDeleted(this.namespace, collectionSlug)
   const additionalWhere = qb.buildWhereClause(where as any)
-  const whereClause = combineWhere(baseWhere, additionalWhere)
+  const innerWhereClause = combineWhere(baseWhereInner, additionalWhere)
   const params = qb.getParams()
 
+  // Count only the latest versions, excluding soft-deleted
   const query = `
     SELECT count() as total
-    FROM ${this.table} FINAL
-    WHERE ${whereClause}
+    FROM (
+      SELECT id, deletedAt, row_number() OVER (PARTITION BY ns, type, id ORDER BY v DESC) as _rn
+      FROM ${this.table}
+      WHERE ${innerWhereClause}
+    )
+    WHERE _rn = 1 AND deletedAt IS NULL
   `
 
-  const result = await this.client.query({
+  const result = await this.clickhouse.query({
     format: 'JSONEachRow',
     query,
     query_params: params,
   })
 
-  const rows = (await result.json())
+  const rows = await result.json<{ total: string }>()
   const totalDocs = parseInt(rows[0]?.total || '0', 10)
 
   return { totalDocs }
