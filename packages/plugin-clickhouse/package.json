@@ -1,0 +1,74 @@
+{
+  "name": "@dotdo/plugin-clickhouse",
+  "version": "0.0.1",
+  "description": "ClickHouse plugin for Payload - exposes search, events, relationships, and actions collections",
+  "keywords": [
+    "payload",
+    "cms",
+    "plugin",
+    "typescript",
+    "clickhouse",
+    "search",
+    "events",
+    "analytics"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/payloadcms/payload.git",
+    "directory": "packages/plugin-clickhouse"
+  },
+  "license": "MIT",
+  "author": "Payload <dev@payloadcms.com> (https://payloadcms.com)",
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./types": {
+      "import": "./src/types.ts",
+      "types": "./src/types.ts",
+      "default": "./src/types.ts"
+    }
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm build:types && pnpm build:swc",
+    "build:swc": "swc ./src -d ./dist --config-file .swcrc --strip-leading-paths",
+    "build:types": "tsc --emitDeclarationOnly --outDir dist",
+    "clean": "rimraf -g {dist,*.tsbuildinfo}",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@payloadcms/eslint-config": "workspace:*",
+    "payload": "workspace:*"
+  },
+  "peerDependencies": {
+    "@dotdo/db-clickhouse": "workspace:*",
+    "payload": "workspace:*"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./types": {
+        "import": "./dist/types.js",
+        "types": "./dist/types.d.ts",
+        "default": "./dist/types.js"
+      }
+    },
+    "main": "./dist/index.js",
+    "registry": "https://registry.npmjs.org/",
+    "types": "./dist/index.d.ts"
+  }
+}
