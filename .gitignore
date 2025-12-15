@@ -38,6 +38,7 @@ audit_output.json
 
 .turbo
 .wrangler
+.mf-test
 
 # Ignore test directory media folder/files
 /media
