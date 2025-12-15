@@ -1,3 +1,4 @@
+import type { ClickHouseClient } from '@clickhouse/client-web'
 import type { Field } from 'payload'
 
 import { fieldAffectsData } from 'payload/shared'
@@ -152,4 +153,101 @@ function parseRelationshipValue(
     toId,
     toType,
   }
+}
+
+/**
+ * Insert relationship rows into the relationships table
+ */
+export async function insertRelationships(
+  clickhouse: ClickHouseClient,
+  table: string,
+  relationships: RelationshipRow[],
+): Promise<void> {
+  if (relationships.length === 0) {
+    return
+  }
+
+  // Build batch insert
+  const values = relationships.map((rel) => ({
+    deletedAt: rel.deletedAt,
+    fromField: rel.fromField,
+    fromId: rel.fromId,
+    fromType: rel.fromType,
+    locale: rel.locale,
+    ns: rel.ns,
+    position: rel.position,
+    toId: rel.toId,
+    toType: rel.toType,
+    v: rel.v,
+  }))
+
+  await clickhouse.insert({
+    format: 'JSONEachRow',
+    table: `${table}_relationships`,
+    values,
+  })
+}
+
+/**
+ * Soft-delete all relationships for a document
+ */
+export async function softDeleteRelationships(
+  clickhouse: ClickHouseClient,
+  table: string,
+  options: { fromId: string; fromType: string; ns: string; v: number },
+): Promise<void> {
+  // Insert tombstone rows for all existing relationships
+  // The ReplacingMergeTree will keep only the latest version per key
+  const { fromId, fromType, ns, v } = options
+
+  // Query existing relationships to create tombstones
+  const result = await clickhouse.query({
+    format: 'JSONEachRow',
+    query: `
+      SELECT fromField, toType, toId, position, locale
+      FROM (
+        SELECT *,
+          row_number() OVER (
+            PARTITION BY ns, fromType, fromId, fromField, toType, toId, position
+            ORDER BY v DESC
+          ) as _rn
+        FROM ${table}_relationships
+        WHERE ns = {ns:String} AND fromType = {fromType:String} AND fromId = {fromId:String}
+      )
+      WHERE _rn = 1 AND deletedAt IS NULL
+    `,
+    query_params: { fromId, fromType, ns },
+  })
+
+  const existing = await result.json<{
+    fromField: string
+    locale: null | string
+    position: number
+    toId: string
+    toType: string
+  }>()
+
+  if (existing.length === 0) {
+    return
+  }
+
+  // Insert tombstones
+  const tombstones = existing.map((rel) => ({
+    deletedAt: v,
+    fromField: rel.fromField,
+    fromId,
+    fromType,
+    locale: rel.locale,
+    ns,
+    position: rel.position,
+    toId: rel.toId,
+    toType: rel.toType,
+    v,
+  }))
+
+  await clickhouse.insert({
+    format: 'JSONEachRow',
+    table: `${table}_relationships`,
+    values: tombstones,
+  })
 }
