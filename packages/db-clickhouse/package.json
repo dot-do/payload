@@ -52,7 +52,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@clickhouse/client-web": "^1.8.1"
+    "@clickhouse/client-web": "^1.8.1",
+    "ulid": "3.0.2"
   },
   "devDependencies": {
     "@payloadcms/eslint-config": "workspace:*",

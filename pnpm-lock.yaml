@@ -296,6 +296,9 @@ importers:
       '@clickhouse/client-web':
         specifier: ^1.8.1
         version: 1.14.0
+      ulid:
+        specifier: 3.0.2
+        version: 3.0.2
     devDependencies:
       '@payloadcms/eslint-config':
         specifier: workspace:*
@@ -14633,6 +14636,10 @@ packages:
   uint8array-extras@1.4.0:
     resolution: {integrity: sha512-ZPtzy0hu4cZjv3z5NW9gfKnNLjoz4y6uv4HlelAjDK7sY/xOkKZv9xK/WQpcsBB3jEybChz9DPC2U/+cusjJVQ==}
     engines: {node: '>=18'}
+
+  ulid@3.0.2:
+    resolution: {integrity: sha512-yu26mwteFYzBAot7KVMqFGCVpsF6g8wXfJzQUHvu1no3+rRRSFcSV2nKeYvNPLD2J4b08jYBDhHUjeH0ygIl9w==}
+    hasBin: true
 
   unbox-primitive@1.0.2:
     resolution: {integrity: sha512-61pPlCD9h51VoreyJ0BReideM3MDKMKnh6+V9L08331ipq6Q8OFXZYiqP6n/tbHx4s5I9uRhcye6BrbkizkBDw==}
@@ -29785,6 +29792,8 @@ snapshots:
   ufo@1.6.1: {}
 
   uint8array-extras@1.4.0: {}
+
+  ulid@3.0.2: {}
 
   unbox-primitive@1.0.2:
     dependencies:

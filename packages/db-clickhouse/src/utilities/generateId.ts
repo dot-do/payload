@@ -1,3 +1,5 @@
+import { ulid } from 'ulid'
+
 /**
  * Alphabet for nanoid-style IDs (URL-safe)
  */
@@ -51,4 +53,12 @@ export function generateVersion(): number {
   const now = Date.now()
   lastVersion = Math.max(now, lastVersion + 1)
   return lastVersion
+}
+
+/**
+ * Generate a ULID (Universally Unique Lexicographically Sortable Identifier)
+ * Time-ordered and sortable, ideal for event logs
+ */
+export function generateUlid(): string {
+  return ulid()
 }
