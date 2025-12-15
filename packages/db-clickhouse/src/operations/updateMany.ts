@@ -1,14 +1,17 @@
 import type { Document, UpdateMany, UpdateManyArgs } from 'payload'
 
 import type { QueryParams } from '../queries/QueryBuilder.js'
-import type { ClickHouseAdapter, DataRow } from '../types.js'
+import type { ClickHouseAdapter, DataRow, RelationshipRow } from '../types.js'
 
 import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { generateVersion } from '../utilities/generateId.js'
+import { extractRelationships, insertRelationships } from '../utilities/relationships.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
 import {
+  convertID,
   deepMerge,
   extractTitle,
+  hasCustomNumericID,
   parseDataRow,
   parseDateTime64ToMs,
   toISOString,
@@ -30,6 +33,8 @@ export const updateMany: UpdateMany = async function updateMany(
   if (!collection) {
     throw new Error(`Collection '${collectionSlug}' not found`)
   }
+
+  const numericID = hasCustomNumericID(collection.config.fields)
 
   const qb = new QueryBuilder()
   // Build base WHERE for inner query (only ns, type)
@@ -72,12 +77,25 @@ export const updateMany: UpdateMany = async function updateMany(
   const userId = req?.user?.id ? String(req.user.id) : null
   const { id: _id, createdAt, updatedAt, ...updateData } = data
 
+  // Collect all relationships for batch insert
+  const allRelationships: RelationshipRow[] = []
+
   // Build all insert operations
   const operations = existingRows.map((row) => {
     const existing = parseDataRow(row)
     const existingData = existing.data
     const mergedData = deepMerge(existingData, updateData)
     const title = extractTitle(mergedData, titleField, existing.id)
+
+    // Extract relationships for this document
+    const relationships = extractRelationships(mergedData, collection.config.fields, {
+      fromId: existing.id,
+      fromType: collectionSlug,
+      locale: req?.locale,
+      ns: this.namespace,
+      v: now,
+    })
+    allRelationships.push(...relationships)
 
     const createdAtMs = parseDateTime64ToMs(existing.createdAt)
 
@@ -119,7 +137,7 @@ export const updateMany: UpdateMany = async function updateMany(
 
     return {
       doc: {
-        id: existing.id,
+        id: convertID(existing.id, numericID),
         ...mergedData,
         createdAt: toISOString(existing.createdAt),
         updatedAt: new Date(now).toISOString(),
@@ -138,6 +156,9 @@ export const updateMany: UpdateMany = async function updateMany(
       }),
     ),
   )
+
+  // Batch insert all relationships
+  await insertRelationships(this.clickhouse, this.table, allRelationships)
 
   return operations.map((op) => op.doc)
 }
