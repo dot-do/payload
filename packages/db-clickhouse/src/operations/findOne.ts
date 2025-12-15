@@ -4,13 +4,14 @@ import type { ClickHouseAdapter, DataRow } from '../types.js'
 
 import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
+import { resolveJoins } from '../utilities/resolveJoins.js'
 import { hasCustomNumericID, parseDataRow, rowToDocument } from '../utilities/transform.js'
 
 export const findOne: FindOne = async function findOne<T extends TypeWithID>(
   this: ClickHouseAdapter,
   args: FindOneArgs,
 ): Promise<null | T> {
-  const { collection: collectionSlug, where } = args
+  const { collection: collectionSlug, joins, locale, where } = args
 
   assertValidSlug(collectionSlug, 'collection')
 
@@ -58,5 +59,16 @@ export const findOne: FindOne = async function findOne<T extends TypeWithID>(
   }
 
   const parsedRow = parseDataRow(rows[0]!)
-  return rowToDocument<T>(parsedRow, numericID)
+  const doc = rowToDocument<T>(parsedRow, numericID)
+
+  // Resolve join fields
+  await resolveJoins({
+    adapter: this,
+    collectionSlug,
+    docs: [doc as Record<string, unknown>],
+    joins,
+    locale,
+  })
+
+  return doc
 }

@@ -5,13 +5,23 @@ import type { ClickHouseAdapter, DataRow } from '../types.js'
 import { buildLimitOffset, buildOrderBy } from '../queries/buildSort.js'
 import { QueryBuilder } from '../queries/QueryBuilder.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
+import { resolveJoins } from '../utilities/resolveJoins.js'
 import { hasCustomNumericID, parseDataRow, rowsToDocuments } from '../utilities/transform.js'
 
 export const find: Find = async function find<T = TypeWithID>(
   this: ClickHouseAdapter,
   args: FindArgs,
 ): Promise<PaginatedDocs<T>> {
-  const { collection: collectionSlug, limit = 10, page = 1, pagination = true, sort, where } = args
+  const {
+    collection: collectionSlug,
+    joins,
+    limit = 10,
+    locale,
+    page = 1,
+    pagination = true,
+    sort,
+    where,
+  } = args
 
   assertValidSlug(collectionSlug, 'collection')
 
@@ -76,6 +86,15 @@ export const find: Find = async function find<T = TypeWithID>(
   const rows = await result.json<DataRow>()
   const parsedRows = rows.map(parseDataRow)
   const docs = rowsToDocuments<T & TypeWithID>(parsedRows, numericID) as T[]
+
+  // Resolve join fields
+  await resolveJoins({
+    adapter: this,
+    collectionSlug,
+    docs: docs as Record<string, unknown>[],
+    joins,
+    locale,
+  })
 
   // Count only the latest versions (not all versions), excluding soft-deleted
   // Apply data filters after window function to count latest versions only
