@@ -160,10 +160,13 @@ export async function cleanupGlobal({
       },
     })
   } else if (isClickHouse(payload)) {
-    // ClickHouse uses soft deletes via deleteGlobalVersions
-    await payload.db.deleteGlobalVersions({
-      global: globalSlug,
-      where: {},
+    // ClickHouse stores globals as JSON data - reset to empty object
+    await payload.db.updateGlobal({
+      slug: globalSlug,
+      data: {
+        title: {},
+        content: {},
+      },
     })
   } else {
     await payload.db.drizzle.delete(payload.db.tables[toSnakeCase(globalSlug)])
