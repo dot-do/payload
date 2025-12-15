@@ -6,6 +6,7 @@ import type { QueryParams } from '../queries/QueryBuilder.js'
 import type { ClickHouseAdapter } from '../types.js'
 
 import { generateId, generateVersion } from '../utilities/generateId.js'
+import { extractRelationships, insertRelationships } from '../utilities/relationships.js'
 import { assertValidSlug } from '../utilities/sanitize.js'
 import { extractTitle, stripSensitiveFields } from '../utilities/transform.js'
 
@@ -87,6 +88,16 @@ export const create: Create = async function create(
     query,
     query_params: params,
   })
+
+  // Extract and insert relationships
+  const relationships = extractRelationships(data, collection.config.fields, {
+    fromId: id,
+    fromType: collectionSlug,
+    locale: req?.locale,
+    ns: this.namespace,
+    v: now,
+  })
+  await insertRelationships(this.clickhouse, this.table, relationships)
 
   // If returning is false, return null to skip building the response document
   if (!returning) {
