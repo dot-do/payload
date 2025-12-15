@@ -9,6 +9,12 @@ import {
   generateRelationshipsCollection,
   generateSearchCollection,
 } from './collections/index.js'
+import {
+  deleteFromSearch,
+  syncWithSearch,
+  trackAfterChange,
+  trackAfterDelete,
+} from './hooks/index.js'
 
 export type { PluginClickHouseConfig } from './types.js'
 
@@ -80,8 +86,77 @@ export const clickhousePlugin =
       collections.push(generateDataCollection(dataConfig, adminGroup))
     }
 
-    // TODO: Add hooks for search indexing (Task 9)
-    // TODO: Add hooks for event tracking (Task 10)
+    // Inject search hooks into tracked collections
+    if (config.search !== false && config.search?.collections) {
+      const searchConfig = config.search
+      const trackedCollections = Object.keys(searchConfig.collections)
+
+      for (let i = 0; i < collections.length; i++) {
+        const collection = collections[i]
+        if (trackedCollections.includes(collection.slug)) {
+          const collectionSearchConfig = searchConfig.collections[collection.slug]
+          collections[i] = {
+            ...collection,
+            hooks: {
+              ...collection.hooks,
+              afterChange: [
+                ...(collection.hooks?.afterChange || []),
+                syncWithSearch({
+                  chunkOverlap: searchConfig.chunkOverlap,
+                  chunkSize: searchConfig.chunkSize,
+                  collectionSlug: collection.slug,
+                  searchConfig: collectionSearchConfig,
+                }),
+              ],
+              beforeDelete: [
+                ...(collection.hooks?.beforeDelete || []),
+                deleteFromSearch({ collectionSlug: collection.slug }),
+              ],
+            },
+          }
+        }
+      }
+    }
+
+    // Inject event tracking hooks into collections
+    if (config.events !== false) {
+      const eventsConfig = typeof config.events === 'object' ? config.events : undefined
+
+      if (eventsConfig?.trackCRUD !== false) {
+        for (let i = 0; i < collections.length; i++) {
+          const collection = collections[i]
+
+          // Skip plugin-generated collections
+          const pluginSlugs = ['search', 'events', 'relationships', 'actions', 'data']
+          if (pluginSlugs.includes(collection.slug)) {continue}
+
+          // Check collection-specific config
+          const collectionConfig = eventsConfig?.collections?.[collection.slug]
+          if (collectionConfig?.track === false) {continue}
+
+          collections[i] = {
+            ...collection,
+            hooks: {
+              ...collection.hooks,
+              afterChange: [
+                ...(collection.hooks?.afterChange || []),
+                trackAfterChange({
+                  collectionSlug: collection.slug,
+                  eventConfig: collectionConfig,
+                }),
+              ],
+              afterDelete: [
+                ...(collection.hooks?.afterDelete || []),
+                trackAfterDelete({
+                  collectionSlug: collection.slug,
+                  eventConfig: collectionConfig,
+                }),
+              ],
+            },
+          }
+        }
+      }
+    }
 
     return {
       ...incomingConfig,
