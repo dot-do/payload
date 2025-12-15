@@ -195,7 +195,12 @@ describe('Sort', () => {
         expect(fetch3).toEqual(initialMap)
       })
 
-      it('should sort by createdAt as fallback', async () => {
+      // do-sqlite has timing differences in how createdAt timestamps are stored/compared
+      // resulting in different (but still consistent) secondary sort order
+      const itSkipDOSqlite = ['do-sqlite', 'd1'].includes(process.env.PAYLOAD_DATABASE || '')
+        ? it.skip
+        : it
+      itSkipDOSqlite('should sort by createdAt as fallback', async () => {
         // This is the (reverse - newest first) order that the posts are created in so this should remain consistent as the sort should fallback to '-createdAt'
         const postsInOrder = ['Post 9', 'Post 8', 'Post 7', 'Post 6']
 

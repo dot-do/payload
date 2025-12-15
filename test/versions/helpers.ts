@@ -4,6 +4,7 @@ import { toSnakeCase } from 'drizzle-orm/casing'
 
 import type { DraftPost } from './payload-types.js'
 
+import { isClickHouse } from '../helpers/isClickHouse.js'
 import { isMongoose } from '../helpers/isMongoose.js'
 
 /**
@@ -158,12 +159,20 @@ export async function cleanupGlobal({
         content: {},
       },
     })
+  } else if (isClickHouse(payload)) {
+    // ClickHouse uses soft deletes via deleteGlobalVersions
+    await payload.db.deleteGlobalVersions({
+      global: globalSlug,
+      where: {},
+    })
   } else {
     await payload.db.drizzle.delete(payload.db.tables[toSnakeCase(globalSlug)])
   }
 
-  await payload.db.deleteVersions({
-    globalSlug,
-    where: {},
-  })
+  if (!isClickHouse(payload)) {
+    await payload.db.deleteVersions({
+      globalSlug,
+      where: {},
+    })
+  }
 }

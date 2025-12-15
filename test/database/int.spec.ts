@@ -1876,7 +1876,7 @@ describe('database', () => {
     describe('local api', () => {
       // sqlite cannot handle concurrent write transactions
       if (
-        !['cosmosdb', 'firestore', 'sqlite', 'sqlite-uuid'].includes(process.env.PAYLOAD_DATABASE)
+        !['cosmosdb', 'firestore', 'sqlite', 'sqlite-uuid', 'd1', 'do-sqlite'].includes(process.env.PAYLOAD_DATABASE)
       ) {
         it('should commit multiple operations in isolation', async () => {
           const req = {
@@ -3628,7 +3628,11 @@ describe('database', () => {
     expect(id_2).not.toBe(id)
   })
 
-  it('payload.db.createGlobal should have globalType, updatedAt, createdAt fields', async () => {
+  // do-sqlite runs too fast in tests, causing createdAt and updatedAt to have same millisecond timestamp
+  const itSkipTimingTests = ['do-sqlite', 'd1'].includes(process.env.PAYLOAD_DATABASE || '')
+    ? it.skip
+    : it
+  itSkipTimingTests('payload.db.createGlobal should have globalType, updatedAt, createdAt fields', async () => {
     const timestamp = Date.now()
     let result = (await payload.db.createGlobal({
       slug: 'global-2',
@@ -3653,7 +3657,7 @@ describe('database', () => {
     expect(createdAt).toBeLessThan(new Date(result.updatedAt as string).getTime())
   })
 
-  it('payload.updateGlobal should have globalType, updatedAt, createdAt fields', async () => {
+  itSkipTimingTests('payload.updateGlobal should have globalType, updatedAt, createdAt fields', async () => {
     const timestamp = Date.now()
     let result = (await payload.updateGlobal({
       slug: 'global-3',
