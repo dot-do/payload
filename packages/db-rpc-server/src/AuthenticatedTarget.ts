@@ -53,10 +53,10 @@ type WithTransaction<T> = { transactionID?: string } & T
  */
 export class AuthenticatedDatabaseTarget extends RpcTarget {
   #adapter: BaseDatabaseAdapter
-  #payload: Payload
+  #payload?: Payload
   #user: TypedUser
 
-  constructor(adapter: BaseDatabaseAdapter, payload: Payload, user: TypedUser) {
+  constructor(adapter: BaseDatabaseAdapter, user: TypedUser, payload?: Payload) {
     super()
     this.#adapter = adapter
     this.#payload = payload
@@ -71,7 +71,7 @@ export class AuthenticatedDatabaseTarget extends RpcTarget {
       payload: this.#payload,
       transactionID,
       user: this.#user,
-    }
+    } as Partial<PayloadRequest>
   }
 
   // ============== Transaction Methods ==============

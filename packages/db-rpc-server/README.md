@@ -101,25 +101,27 @@ export default app
 
 ## Authentication
 
-The server uses Payload's built-in authentication system. Clients authenticate by calling the `authenticate(token)` RPC method with a bearer token.
+The server supports two authentication modes:
 
-### Supported Token Types
+### Option 1: Payload Auth (Default)
 
-1. **JWT Tokens** - Obtained from `payload.login()`
-2. **API Keys** - If configured in your users collection
-
-### Auth Flow
-
-1. Client connects to the public RPC endpoint
-2. Client calls `authenticate(bearerToken)`
-3. Server validates token using `payload.auth()`
-4. Server returns an authenticated API stub
-5. All subsequent calls on that stub include user context
-
-### Getting a Token
+Uses Payload's built-in authentication system. Pass the `payload` instance:
 
 ```typescript
-// On your auth server
+createRpcServer({
+  adapter: payload.db,
+  payload, // Uses payload.auth() to validate tokens
+})
+```
+
+**Supported token types:**
+
+- JWT Tokens - Obtained from `payload.login()`
+- API Keys - If configured in your users collection
+
+**Getting a token:**
+
+```typescript
 const { token } = await payload.login({
   collection: 'users',
   data: {
@@ -127,9 +129,54 @@ const { token } = await payload.login({
     password: 'password',
   },
 })
-
-// Pass this token to the client
 ```
+
+### Option 2: Custom Auth
+
+Use `validateToken` for external auth systems (Cloudflare Access, custom JWT, etc.):
+
+```typescript
+createRpcServer({
+  adapter: db,
+  validateToken: async (token) => {
+    // Validate with your auth system
+    const decoded = await verifyJwt(token, { secret: env.JWT_SECRET })
+    if (!decoded) return null
+
+    // Return a user object (must have at least 'id')
+    return {
+      id: decoded.sub,
+      email: decoded.email,
+      // ... other user properties
+    }
+  },
+})
+```
+
+**Cloudflare Access example:**
+
+```typescript
+createRpcServer({
+  adapter: db,
+  validateToken: async (token) => {
+    // Validate Cloudflare Access JWT
+    const payload = await verifyCloudflareAccessJwt(token, {
+      teamDomain: env.CF_TEAM_DOMAIN,
+      audience: env.CF_ACCESS_AUD,
+    })
+
+    return payload ? { id: payload.sub, email: payload.email } : null
+  },
+})
+```
+
+### Auth Flow
+
+1. Client connects to the public RPC endpoint
+2. Client calls `authenticate(bearerToken)`
+3. Server validates token (via Payload or custom validator)
+4. Server returns an authenticated API stub
+5. All subsequent calls on that stub include user context
 
 ## API Reference
 
@@ -140,9 +187,13 @@ Creates a standalone Hono application with RPC endpoint.
 ```typescript
 interface RpcServerOptions {
   adapter: BaseDatabaseAdapter
-  payload: Payload
+  payload?: Payload // For Payload auth
+  validateToken?: ValidateTokenFn // For custom auth
   basePath?: string // default: '/rpc'
 }
+
+// Either payload or validateToken must be provided
+type ValidateTokenFn = (token: string) => Promise<TypedUser | null>
 ```
 
 **Endpoints:**
@@ -159,7 +210,8 @@ Creates Hono middleware for mounting on existing apps.
 ```typescript
 interface RpcMiddlewareOptions {
   adapter: BaseDatabaseAdapter
-  payload: Payload
+  payload?: Payload // For Payload auth
+  validateToken?: ValidateTokenFn // For custom auth
 }
 ```
 
@@ -170,7 +222,11 @@ The public RPC target class. Use directly for custom setups.
 ```typescript
 import { DatabaseRpcTarget } from '@dotdo/db-rpc-server'
 
+// With Payload auth
 const target = new DatabaseRpcTarget(adapter, payload)
+
+// With custom auth
+const target = new DatabaseRpcTarget(adapter, undefined, validateTokenFn)
 ```
 
 ### `AuthenticatedDatabaseTarget`

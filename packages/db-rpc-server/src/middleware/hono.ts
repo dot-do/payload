@@ -5,12 +5,17 @@
  * a database adapter via RPC over HTTP and WebSocket.
  */
 
-import type { BaseDatabaseAdapter, Payload } from 'payload'
+import type { BaseDatabaseAdapter, Payload, TypedUser } from 'payload'
 
 import { newWorkersRpcResponse } from 'capnweb'
 import { Hono } from 'hono'
 
 import { DatabaseRpcTarget } from '../DatabaseRpcTarget.js'
+
+/**
+ * Token validation function type
+ */
+export type ValidateTokenFn = (token: string) => Promise<null | TypedUser>
 
 /**
  * Options for creating RPC middleware
@@ -19,8 +24,30 @@ export interface RpcMiddlewareOptions {
   /** The database adapter to expose via RPC */
   adapter: BaseDatabaseAdapter
 
-  /** The Payload instance for auth validation */
-  payload: Payload
+  /**
+   * The Payload instance for auth validation.
+   * If provided, uses payload.auth() to validate tokens.
+   * Either `payload` or `validateToken` must be provided.
+   */
+  payload?: Payload
+
+  /**
+   * Custom token validation function.
+   * Use this when handling auth outside of Payload (e.g., Cloudflare Access, custom JWT).
+   * Either `payload` or `validateToken` must be provided.
+   *
+   * @example
+   * ```typescript
+   * createRpcServer({
+   *   adapter: db,
+   *   validateToken: async (token) => {
+   *     const decoded = await verifyJwt(token)
+   *     return decoded ? { id: decoded.sub, email: decoded.email } : null
+   *   },
+   * })
+   * ```
+   */
+  validateToken?: ValidateTokenFn
 }
 
 /**
@@ -31,23 +58,39 @@ export interface RpcMiddlewareOptions {
  *
  * @example
  * ```typescript
+ * // With Payload auth
  * import { Hono } from 'hono'
  * import { createRpcMiddleware } from '@dotdo/db-rpc-server/hono'
  *
  * const app = new Hono()
- *
- * // Mount RPC middleware at /rpc
  * app.route('/rpc', createRpcMiddleware({
  *   adapter: payload.db,
  *   payload,
  * }))
+ * ```
  *
- * export default app
+ * @example
+ * ```typescript
+ * // With custom auth
+ * import { createRpcMiddleware } from '@dotdo/db-rpc-server/hono'
+ *
+ * app.route('/rpc', createRpcMiddleware({
+ *   adapter: db,
+ *   validateToken: async (token) => {
+ *     const user = await myAuth.verify(token)
+ *     return user
+ *   },
+ * }))
  * ```
  */
 export function createRpcMiddleware(options: RpcMiddlewareOptions) {
-  const { adapter, payload } = options
-  const target = new DatabaseRpcTarget(adapter, payload)
+  const { adapter, payload, validateToken } = options
+
+  if (!payload && !validateToken) {
+    throw new Error('Either payload or validateToken must be provided')
+  }
+
+  const target = new DatabaseRpcTarget(adapter, payload, validateToken)
 
   const app = new Hono()
 

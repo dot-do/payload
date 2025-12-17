@@ -6,11 +6,16 @@
  */
 
 import type { ServerInfo } from '@dotdo/db-rpc/interface'
-import type { BaseDatabaseAdapter, Payload } from 'payload'
+import type { BaseDatabaseAdapter, Payload, TypedUser } from 'payload'
 
 import { RpcTarget } from 'capnweb'
 
 import { AuthenticatedDatabaseTarget } from './AuthenticatedTarget.js'
+
+/**
+ * Token validation function type
+ */
+export type ValidateTokenFn = (token: string) => Promise<null | TypedUser>
 
 /**
  * Public database RPC target
@@ -18,48 +23,59 @@ import { AuthenticatedDatabaseTarget } from './AuthenticatedTarget.js'
  * This is the initial interface exposed to clients.
  * Clients must authenticate to get access to database operations.
  *
+ * Supports two authentication modes:
+ * 1. Payload auth: Pass a Payload instance, uses payload.auth() to validate tokens
+ * 2. Custom auth: Pass a validateToken callback for external auth systems
+ *
  * Note: We don't use `implements PublicDatabaseApi` to avoid strict type checking
  * issues with generic return types. The implementation matches at runtime.
  */
 export class DatabaseRpcTarget extends RpcTarget {
   #adapter: BaseDatabaseAdapter
-  #payload: Payload
+  #payload?: Payload
+  #validateTokenFn?: ValidateTokenFn
 
-  constructor(adapter: BaseDatabaseAdapter, payload: Payload) {
+  constructor(adapter: BaseDatabaseAdapter, payload?: Payload, validateToken?: ValidateTokenFn) {
     super()
     this.#adapter = adapter
     this.#payload = payload
+    this.#validateTokenFn = validateToken
   }
 
   /**
-   * Validate a bearer token using Payload's auth system
+   * Validate a bearer token
    *
-   * Supports both JWT tokens and API keys.
+   * Uses either Payload's auth system or a custom validation function.
    */
-  async #validateToken(token: string) {
-    try {
-      // Use Payload's auth method to validate the token
-      // This handles both JWT tokens and API keys
-      const result = await this.#payload.auth({
-        headers: new Headers({
-          Authorization: `Bearer ${token}`,
-        }),
-      })
-
-      return result.user
-    } catch {
-      // If auth fails, return null
-      return null
+  async #validateToken(token: string): Promise<null | TypedUser> {
+    // Use custom validator if provided
+    if (this.#validateTokenFn) {
+      return this.#validateTokenFn(token)
     }
+
+    // Otherwise use Payload's auth system
+    if (this.#payload) {
+      try {
+        const result = await this.#payload.auth({
+          headers: new Headers({
+            Authorization: `Bearer ${token}`,
+          }),
+        })
+        return result.user
+      } catch {
+        return null
+      }
+    }
+
+    return null
   }
 
   /**
    * Authenticate with a bearer token
    *
-   * Validates the token using Payload's auth system and returns
-   * an authenticated API stub bound to the validated user.
+   * Validates the token and returns an authenticated API stub bound to the validated user.
    *
-   * @param token - Bearer token (JWT or API key)
+   * @param token - Bearer token (JWT, API key, or custom token)
    * @returns Authenticated database API
    * @throws Error if token is invalid
    */
@@ -70,7 +86,7 @@ export class DatabaseRpcTarget extends RpcTarget {
       throw new Error('Unauthorized: Invalid or expired token')
     }
 
-    return new AuthenticatedDatabaseTarget(this.#adapter, this.#payload, user)
+    return new AuthenticatedDatabaseTarget(this.#adapter, user, this.#payload)
   }
 
   /**

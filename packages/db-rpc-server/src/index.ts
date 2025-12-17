@@ -11,7 +11,7 @@ export { DatabaseRpcTarget } from './DatabaseRpcTarget.js'
 
 // Middleware exports
 export { createRpcMiddleware, createRpcServer } from './middleware/hono.js'
-export type { RpcMiddlewareOptions, RpcServerOptions } from './middleware/hono.js'
+export type { RpcMiddlewareOptions, RpcServerOptions, ValidateTokenFn } from './middleware/hono.js'
 
 // Type exports
 export type { RpcContext, RpcServerOptions as RpcOptions } from './types.js'
