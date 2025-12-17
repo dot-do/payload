@@ -6,8 +6,8 @@
 
 import type { DatabaseAdapterObj, Payload } from 'payload'
 
+import { rpcAdapter } from '@dotdo/db-rpc'
 import { serve } from '@hono/node-server'
-import { rpcAdapter } from '@payloadcms/db-rpc'
 import { getPayload } from 'payload'
 
 import { createRpcServer } from '../../../middleware/hono.js'

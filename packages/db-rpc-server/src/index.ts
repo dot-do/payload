@@ -1,5 +1,5 @@
 /**
- * @payloadcms/db-rpc-server
+ * @dotdo/db-rpc-server
  *
  * RPC server for Payload database adapters
  * Exposes any database adapter via HTTP/WebSocket using capnweb
@@ -21,4 +21,4 @@ export type {
   AuthenticatedDatabaseApi,
   PublicDatabaseApi,
   ServerInfo,
-} from '@payloadcms/db-rpc/interface'
+} from '@dotdo/db-rpc/interface'

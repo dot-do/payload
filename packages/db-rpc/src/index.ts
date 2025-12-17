@@ -1,5 +1,5 @@
 /**
- * @payloadcms/db-rpc
+ * @dotdo/db-rpc
  *
  * RPC client database adapter for Payload CMS
  * Connects to a remote db-rpc-server over HTTP or WebSocket using capnweb
@@ -26,7 +26,7 @@ export type { RpcAdapter, RpcAdapterArgs } from './types.js'
  *
  * @example
  * ```typescript
- * import { rpcAdapter } from '@payloadcms/db-rpc'
+ * import { rpcAdapter } from '@dotdo/db-rpc'
  *
  * export default buildConfig({
  *   db: rpcAdapter({
@@ -405,7 +405,7 @@ export function rpcAdapter(args: RpcAdapterArgs): DatabaseAdapterObj<RpcAdapter>
 
       defaultIDType: 'text',
       migrationDir: '',
-      packageName: '@payloadcms/db-rpc',
+      packageName: '@dotdo/db-rpc',
       payload,
     })
   }

@@ -32,7 +32,7 @@ export interface RpcMiddlewareOptions {
  * @example
  * ```typescript
  * import { Hono } from 'hono'
- * import { createRpcMiddleware } from '@payloadcms/db-rpc-server/hono'
+ * import { createRpcMiddleware } from '@dotdo/db-rpc-server/hono'
  *
  * const app = new Hono()
  *
@@ -84,7 +84,7 @@ export interface RpcServerOptions extends RpcMiddlewareOptions {
  * @example
  * ```typescript
  * // Cloudflare Workers
- * import { createRpcServer } from '@payloadcms/db-rpc-server/hono'
+ * import { createRpcServer } from '@dotdo/db-rpc-server/hono'
  *
  * export default createRpcServer({
  *   adapter: payload.db,
@@ -95,7 +95,7 @@ export interface RpcServerOptions extends RpcMiddlewareOptions {
  * @example
  * ```typescript
  * // Bun
- * import { createRpcServer } from '@payloadcms/db-rpc-server/hono'
+ * import { createRpcServer } from '@dotdo/db-rpc-server/hono'
  *
  * const app = createRpcServer({
  *   adapter: payload.db,
@@ -119,7 +119,7 @@ export function createRpcServer(options: RpcServerOptions) {
   // Root health check
   app.get('/', (c) => {
     return c.json({
-      name: '@payloadcms/db-rpc-server',
+      name: '@dotdo/db-rpc-server',
       endpoints: {
         health: `${basePath}/health`,
         rpc: basePath,

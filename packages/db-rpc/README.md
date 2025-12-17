@@ -1,18 +1,18 @@
-# @payloadcms/db-rpc
+# @dotdo/db-rpc
 
-RPC client database adapter for Payload CMS. Connects to a remote `@payloadcms/db-rpc-server` over HTTP or WebSocket.
+RPC client database adapter for Payload CMS. Connects to a remote `@dotdo/db-rpc-server` over HTTP or WebSocket.
 
 ## Installation
 
 ```bash
-pnpm add @payloadcms/db-rpc
+pnpm add @dotdo/db-rpc
 ```
 
 ## Usage
 
 ```typescript
 import { buildConfig } from 'payload'
-import { rpcAdapter } from '@payloadcms/db-rpc'
+import { rpcAdapter } from '@dotdo/db-rpc'
 
 export default buildConfig({
   db: rpcAdapter({
@@ -102,6 +102,6 @@ rpcAdapter({
 
 ## Related
 
-- [@payloadcms/db-rpc-server](https://www.npmjs.com/package/@payloadcms/db-rpc-server) - The server component
+- [@dotdo/db-rpc-server](https://www.npmjs.com/package/@dotdo/db-rpc-server) - The server component
 - [capnweb](https://github.com/cloudflare/capnweb) - The underlying RPC library
 - [Payload Docs](https://payloadcms.com/docs)

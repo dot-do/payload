@@ -8,7 +8,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
 // In a real implementation, you would import:
-// import { createRpcServer } from '@payloadcms/db-rpc-server/hono'
+// import { createRpcServer } from '@dotdo/db-rpc-server/hono'
 // import { getPayload } from 'payload'
 
 export interface Env {

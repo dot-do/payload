@@ -5,7 +5,7 @@
  * All operations include the authenticated user in the request context.
  */
 
-import type { FindDistinctArgs } from '@payloadcms/db-rpc'
+import type { FindDistinctArgs } from '@dotdo/db-rpc'
 import type {
   BaseDatabaseAdapter,
   CountArgs,
@@ -184,7 +184,7 @@ export class AuthenticatedDatabaseTarget extends RpcTarget {
   async findDistinct(args: WithTransaction<Omit<FindDistinctArgs, 'req'>>) {
     const { transactionID, ...rest } = args
     // Type assertion needed because FindDistinctArgs has required fields
-     
+
     return this.#adapter.findDistinct({
       ...rest,
       req: this.#buildReq(transactionID),
@@ -215,7 +215,7 @@ export class AuthenticatedDatabaseTarget extends RpcTarget {
 
   async findOne<T extends TypeWithID>(args: WithTransaction<Omit<FindOneArgs, 'req'>>) {
     const { transactionID, ...rest } = args
-     
+
     return this.#adapter.findOne<T>({
       ...rest,
       req: this.#buildReq(transactionID),
@@ -258,7 +258,7 @@ export class AuthenticatedDatabaseTarget extends RpcTarget {
     args: WithTransaction<Omit<UpdateGlobalVersionArgs<T>, 'req'>>,
   ) {
     const { transactionID, ...rest } = args
-     
+
     return this.#adapter.updateGlobalVersion<T>({
       ...rest,
       req: this.#buildReq(transactionID),
@@ -269,7 +269,7 @@ export class AuthenticatedDatabaseTarget extends RpcTarget {
 
   async updateJobs(args: WithTransaction<Omit<UpdateJobsArgs, 'req'>>) {
     const { transactionID, ...rest } = args
-     
+
     return this.#adapter.updateJobs({
       ...rest,
       req: this.#buildReq(transactionID),
@@ -286,7 +286,7 @@ export class AuthenticatedDatabaseTarget extends RpcTarget {
 
   async updateOne(args: WithTransaction<Omit<UpdateOneArgs, 'req'>>) {
     const { transactionID, ...rest } = args
-     
+
     return this.#adapter.updateOne({
       ...rest,
       req: this.#buildReq(transactionID),
@@ -297,7 +297,7 @@ export class AuthenticatedDatabaseTarget extends RpcTarget {
     args: WithTransaction<Omit<UpdateVersionArgs<T>, 'req'>>,
   ) {
     const { transactionID, ...rest } = args
-     
+
     return this.#adapter.updateVersion<T>({
       ...rest,
       req: this.#buildReq(transactionID),

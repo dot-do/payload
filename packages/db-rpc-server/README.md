@@ -1,11 +1,11 @@
-# @payloadcms/db-rpc-server
+# @dotdo/db-rpc-server
 
 RPC server for Payload database adapters. Exposes any Payload database adapter via HTTP/WebSocket using [capnweb](https://github.com/cloudflare/capnweb) and [Hono](https://hono.dev).
 
 ## Installation
 
 ```bash
-pnpm add @payloadcms/db-rpc-server hono
+pnpm add @dotdo/db-rpc-server hono
 ```
 
 ## Quick Start
@@ -13,7 +13,7 @@ pnpm add @payloadcms/db-rpc-server hono
 ### Cloudflare Workers
 
 ```typescript
-import { createRpcServer } from '@payloadcms/db-rpc-server/hono'
+import { createRpcServer } from '@dotdo/db-rpc-server/hono'
 import { getPayload } from 'payload'
 import config from './payload.config'
 
@@ -34,7 +34,7 @@ export default {
 ### Bun
 
 ```typescript
-import { createRpcServer } from '@payloadcms/db-rpc-server/hono'
+import { createRpcServer } from '@dotdo/db-rpc-server/hono'
 import { getPayload } from 'payload'
 import config from './payload.config'
 
@@ -55,7 +55,7 @@ export default {
 
 ```typescript
 import { serve } from '@hono/node-server'
-import { createRpcServer } from '@payloadcms/db-rpc-server/hono'
+import { createRpcServer } from '@dotdo/db-rpc-server/hono'
 import { getPayload } from 'payload'
 import config from './payload.config'
 
@@ -76,7 +76,7 @@ serve({
 
 ```typescript
 import { Hono } from 'hono'
-import { createRpcMiddleware } from '@payloadcms/db-rpc-server/hono'
+import { createRpcMiddleware } from '@dotdo/db-rpc-server/hono'
 import { getPayload } from 'payload'
 import config from './payload.config'
 
@@ -168,7 +168,7 @@ interface RpcMiddlewareOptions {
 The public RPC target class. Use directly for custom setups.
 
 ```typescript
-import { DatabaseRpcTarget } from '@payloadcms/db-rpc-server'
+import { DatabaseRpcTarget } from '@dotdo/db-rpc-server'
 
 const target = new DatabaseRpcTarget(adapter, payload)
 ```
@@ -216,7 +216,7 @@ Migrations are **not supported** over RPC. Run migrations directly on the server
 
 ## Related
 
-- [@payloadcms/db-rpc](https://www.npmjs.com/package/@payloadcms/db-rpc) - The client adapter
+- [@dotdo/db-rpc](https://www.npmjs.com/package/@dotdo/db-rpc) - The client adapter
 - [capnweb](https://github.com/cloudflare/capnweb) - The underlying RPC library
 - [Hono](https://hono.dev) - The web framework used for HTTP handling
 - [Payload Docs](https://payloadcms.com/docs)

@@ -1,5 +1,5 @@
 {
-  "name": "@payloadcms/db-rpc",
+  "name": "@dotdo/db-rpc",
   "version": "0.1.0",
   "description": "RPC client database adapter for Payload - connects to a remote db-rpc-server",
   "keywords": [

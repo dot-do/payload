@@ -5,7 +5,7 @@
  * Provides authentication and server info methods.
  */
 
-import type { ServerInfo } from '@payloadcms/db-rpc/interface'
+import type { ServerInfo } from '@dotdo/db-rpc/interface'
 import type { BaseDatabaseAdapter, Payload } from 'payload'
 
 import { RpcTarget } from 'capnweb'
