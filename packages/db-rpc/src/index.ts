@@ -41,8 +41,8 @@ export function rpcAdapter(args: RpcAdapterArgs): DatabaseAdapterObj<RpcAdapter>
   const { token, transport = 'http', url } = args
 
   function adapter({ payload }: { payload: Payload }): RpcAdapter {
-    let client: null | PublicDatabaseApi = null
     let serverInfo: RpcAdapter['serverInfo'] = null
+    let connected = false
 
     /**
      * Get the token value (resolves function if needed)
@@ -54,11 +54,27 @@ export function rpcAdapter(args: RpcAdapterArgs): DatabaseAdapterObj<RpcAdapter>
     }
 
     /**
+     * Create a fresh RPC session.
+     *
+     * With capnweb HTTP batch sessions, each batch should use a fresh session.
+     * Awaiting any call (like getServerInfo) ends the batch, so we create
+     * a new session for each operation.
+     */
+    const createSession = (): PublicDatabaseApi => {
+      if (transport === 'websocket') {
+        // @ts-expect-error - capnweb's types cause infinite recursion, runtime is correct
+        return newWebSocketRpcSession(url)
+      }
+      // @ts-expect-error - capnweb's types cause infinite recursion, runtime is correct
+      return newHttpBatchRpcSession(url)
+    }
+
+    /**
      * Helper to chain authenticate() with an operation.
      *
-     * IMPORTANT: With capnweb, you must NOT await intermediate RPC calls.
-     * This helper ensures proper promise pipelining by returning a single
-     * chained promise without intermediate awaits.
+     * IMPORTANT: With capnweb HTTP batch, each batch uses a fresh session.
+     * This helper creates a new session, chains authenticate() with the
+     * operation, and returns the result.
      *
      *   ❌ Wrong: const api = await client.authenticate(token); await api.find()
      *   ✅ Right: await client.authenticate(token).find()
@@ -67,14 +83,15 @@ export function rpcAdapter(args: RpcAdapterArgs): DatabaseAdapterObj<RpcAdapter>
      * understand capnweb's thenable stubs that support method chaining.
      */
     const withAuth = <T>(operation: (auth: AuthenticatedDatabaseApi) => T): Promise<Awaited<T>> => {
-      if (!client) {
+      if (!connected) {
         return Promise.reject(new Error('RPC client not connected. Call connect() first.'))
       }
+      // Create fresh session for each batch
+      const session = createSession()
       // Chain token resolution -> authenticate -> operation in a single promise
       // DO NOT await authenticate() - chain directly to preserve pipelining
-      // capnweb stubs are thenable AND have methods - TypeScript doesn't understand this
       return resolveToken().then((tokenValue) =>
-        operation(client!.authenticate(tokenValue) as AuthenticatedDatabaseApi),
+        operation(session.authenticate(tokenValue) as AuthenticatedDatabaseApi),
       ) as Promise<Awaited<T>>
     }
 
@@ -89,30 +106,17 @@ export function rpcAdapter(args: RpcAdapterArgs): DatabaseAdapterObj<RpcAdapter>
       // ============== Lifecycle ==============
 
       async connect() {
-        // capnweb returns complex stub types with recursive generics
-        // We break the type inference by avoiding direct generic instantiation
-        if (transport === 'websocket') {
-          // @ts-expect-error - capnweb's types cause infinite recursion, runtime is correct
-          client = newWebSocketRpcSession(url)
-        } else {
-          // @ts-expect-error - capnweb's types cause infinite recursion, runtime is correct
-          client = newHttpBatchRpcSession(url)
-        }
-
-        // Fetch server info
-        serverInfo = await (client as PublicDatabaseApi).getServerInfo()
+        // Fetch server info using a dedicated session
+        const infoSession = createSession()
+        serverInfo = await infoSession.getServerInfo()
 
         // Update adapter properties
-        this.client = client
         this.serverInfo = serverInfo
+        connected = true
       },
 
       async destroy() {
-        if (client) {
-          // Dispose of the RPC session
-          ;(client as unknown as { [Symbol.dispose](): void })[Symbol.dispose]?.()
-          client = null
-        }
+        connected = false
         await Promise.resolve()
       },
 
