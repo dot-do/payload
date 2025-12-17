@@ -27,7 +27,7 @@ import type { ClickHouseAdapter, VectorIndexConfig } from './types.js'
 
 import { createMigration } from './createMigration.js'
 import { init } from './init.js'
-import { createChdbClient } from './local/chdbClient.js'
+import { ChdbClient } from './local/chdbClient.js'
 import { migrate } from './migrate.js'
 import { migrateFresh } from './migrateFresh.js'
 import {
@@ -428,9 +428,24 @@ export function chdbAdapter(args: ChdbAdapterArgs = {}): DatabaseAdapterObj {
 }
 
 // Re-export ChdbClient for users who want to create their own client
-export { ChdbClient, createChdbClient } from './local/chdbClient.js'
+export { ChdbClient } from './local/chdbClient.js'
 
-export type { VectorIndexConfig } from './types.js'
+export type { ChdbSession, VectorIndexConfig } from './types.js'
+
+/**
+ * Create a ChDB client with a session at the specified path
+ */
+export function createChdbClient(path: string): InstanceType<typeof ChdbClient> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Session } = require('chdb') as {
+    Session: new (path: string) => {
+      cleanup(): void
+      query(query: string, format?: string): string
+    }
+  }
+  const session = new Session(path)
+  return new ChdbClient(session)
+}
 
 // Backwards compatibility alias
 export { chdbAdapter as localClickhouseAdapter }

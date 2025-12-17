@@ -159,14 +159,3 @@ export class ChdbClient {
     })
   }
 }
-
-/**
- * Create a ChDB client with a session at the specified path
- */
-export function createChdbClient(path: string): ChdbClient {
-  // Dynamic import to avoid issues in environments where chdb isn't available
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Session } = require('chdb') as { Session: new (path: string) => ChdbSession }
-  const session = new Session(path)
-  return new ChdbClient(session)
-}
