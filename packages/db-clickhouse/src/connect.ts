@@ -5,8 +5,6 @@ import { createClient } from '@clickhouse/client-web'
 
 import type { ClickHouseAdapter, VectorIndexConfig } from './types.js'
 
-import { ChdbClient } from './local/chdbClient.js'
-
 /**
  * Validate that a table name is safe to use in SQL
  * Must start with a letter or underscore, followed by letters, numbers, or underscores
@@ -181,7 +179,8 @@ export const connect: Connect = async function connect(this: ClickHouseAdapter):
     // Use provided client directly
     clickhouse = providedClient as ClickHouseClient
   } else if (session) {
-    // Wrap chdb session in ChdbClient
+    // Dynamically import ChdbClient to avoid bundling chdb dependency
+    const { ChdbClient } = await import('./local/chdbClient.js')
     clickhouse = new ChdbClient(session) as unknown as ClickHouseClient
   } else {
     // Validate that URL is provided when no client is given

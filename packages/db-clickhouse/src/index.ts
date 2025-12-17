@@ -49,8 +49,6 @@ import {
 } from './operations/index.js'
 import { assertValidNamespace } from './utilities/sanitize.js'
 
-export { ChdbClient } from './local/chdbClient.js'
-
 export type {
   ChdbSession,
   ClickHouseAdapter,

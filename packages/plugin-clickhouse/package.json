@@ -43,14 +43,18 @@
     "build:types": "tsc --emitDeclarationOnly --outDir dist",
     "clean": "rimraf -g {dist,*.tsbuildinfo}",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:int": "vitest run --config vitest.int.config.ts"
   },
   "dependencies": {
     "nanoid": "^5.0.9"
   },
   "devDependencies": {
+    "@clickhouse/client-web": "^1.8.1",
     "@payloadcms/eslint-config": "workspace:*",
-    "payload": "workspace:*"
+    "payload": "workspace:*",
+    "vitest": "^2.1.8"
   },
   "peerDependencies": {
     "@dotdo/db-clickhouse": "workspace:*",
