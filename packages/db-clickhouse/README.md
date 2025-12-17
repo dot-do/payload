@@ -21,7 +21,17 @@ ClickHouse database adapter for [Payload](https://payloadcms.com), optimized for
 npm install @dotdo/db-clickhouse
 ```
 
+For local development with embedded ClickHouse (chdb), also install the optional `chdb` peer dependency:
+
+```bash
+npm install @dotdo/db-clickhouse chdb
+```
+
+> **Note**: `chdb` is an optional peer dependency (~85MB) that's only needed if you use the `chdbAdapter`. The main `clickhouseAdapter` works without it.
+
 ## Usage
+
+### Remote ClickHouse Server
 
 ```ts
 import { buildConfig } from 'payload'
@@ -39,18 +49,150 @@ export default buildConfig({
 })
 ```
 
+### Embedded ClickHouse with chdb
+
+For local development, you can use the embedded ClickHouse adapter powered by [chdb](https://clickhouse.com/docs/chdb). This runs ClickHouse embedded in your Node.js process with file-based persistence - no Docker or external server required.
+
+```ts
+import { buildConfig } from 'payload'
+import { chdbAdapter } from '@dotdo/db-clickhouse/local'
+
+export default buildConfig({
+  db: chdbAdapter({
+    path: './.data/clickhouse', // Directory for data storage
+    namespace: 'development',
+  }),
+  // ...rest of config
+})
+```
+
+The chdb adapter is ideal for:
+
+- Local development without Docker
+- Quick prototyping and testing
+- CI/CD pipelines
+- Environments where running a ClickHouse server isn't practical
+
+> **Note**: Requires the optional `chdb` peer dependency. Data is persisted to the specified directory and survives restarts.
+
+### Bring Your Own Client
+
+You can pass a pre-configured ClickHouse client instead of connection credentials. This is useful for advanced configurations, connection pooling, or using a custom client wrapper.
+
+```ts
+import { buildConfig } from 'payload'
+import { createClient } from '@clickhouse/client-web'
+import { clickhouseAdapter } from '@dotdo/db-clickhouse'
+
+// Create your own client with custom configuration
+const client = createClient({
+  url: 'https://your-clickhouse-host:8443',
+  username: 'default',
+  password: process.env.CLICKHOUSE_PASSWORD,
+  clickhouse_settings: {
+    allow_experimental_json_type: 1,
+    // your custom settings...
+  },
+})
+
+export default buildConfig({
+  db: clickhouseAdapter({
+    client, // Pass the pre-configured client
+    database: 'myapp',
+    namespace: 'production',
+  }),
+  // ...rest of config
+})
+```
+
+You can also pass a chdb Session directly:
+
+```ts
+import { buildConfig } from 'payload'
+import { Session } from 'chdb'
+import { clickhouseAdapter } from '@dotdo/db-clickhouse'
+
+const session = new Session('/path/to/data')
+
+export default buildConfig({
+  db: clickhouseAdapter({ session }),
+  // ...rest of config
+})
+```
+
+For custom clients, implement the `ClickHouseClientLike` interface:
+
+```ts
+interface ClickHouseClientLike {
+  close(): Promise<void>
+  command(params: { query: string; query_params?: Record<string, unknown> }): Promise<unknown>
+  query<T = unknown>(params: {
+    format?: string
+    query: string
+    query_params?: Record<string, unknown>
+  }): Promise<{ json: <R = T>() => Promise<R[]> }>
+}
+```
+
 ## Configuration Options
 
-| Option      | Type               | Default     | Description                                                             |
-| ----------- | ------------------ | ----------- | ----------------------------------------------------------------------- |
-| `url`       | `string`           | _required_  | ClickHouse server URL (e.g., `https://host:8443`)                       |
-| `username`  | `string`           | `'default'` | ClickHouse username                                                     |
-| `password`  | `string`           | `''`        | ClickHouse password                                                     |
-| `database`  | `string`           | `'default'` | Database name                                                           |
-| `table`     | `string`           | `'data'`    | Table name for storing all documents                                    |
-| `namespace` | `string`           | `'payload'` | Namespace to separate different Payload apps                            |
-| `idType`    | `'text' \| 'uuid'` | `'text'`    | ID type for documents                                                   |
-| `timezone`  | `string`           | `'UTC'`     | Timezone for DateTime handling. Use `'auto'` to detect from environment |
+### Remote Adapter (`clickhouseAdapter`)
+
+| Option                      | Type                   | Default      | Description                                                              |
+| --------------------------- | ---------------------- | ------------ | ------------------------------------------------------------------------ |
+| `client`                    | `ClickHouseClientLike` | `undefined`  | Pre-configured client (if provided, `url`/`username`/`password` ignored) |
+| `session`                   | `ChdbSession`          | `undefined`  | chdb Session instance (automatically wrapped)                            |
+| `url`                       | `string`               | _required\*_ | ClickHouse server URL (e.g., `https://host:8443`)                        |
+| `username`                  | `string`               | `'default'`  | ClickHouse username                                                      |
+| `password`                  | `string`               | `''`         | ClickHouse password                                                      |
+| `database`                  | `string`               | `'default'`  | Database name                                                            |
+| `table`                     | `string`               | `'data'`     | Table name for storing all documents                                     |
+| `namespace`                 | `string`               | `'payload'`  | Namespace to separate different Payload apps (supports dots for domains) |
+| `idType`                    | `'text' \| 'uuid'`     | `'text'`     | ID type for documents                                                    |
+| `timezone`                  | `string`               | `'UTC'`      | Timezone for DateTime handling. Use `'auto'` to detect from environment  |
+| `embeddingDimensions`       | `number`               | `1536`       | Embedding dimensions for vector search                                   |
+| `vectorIndex`               | `VectorIndexConfig`    | `undefined`  | Vector index configuration (see below)                                   |
+| `defaultTransactionTimeout` | `number \| null`       | `30000`      | Default transaction timeout in milliseconds                              |
+
+> \*`url` is required only if `client` or `session` is not provided.
+
+### chdb Adapter (`chdbAdapter`)
+
+| Option                      | Type                | Default                | Description                                  |
+| --------------------------- | ------------------- | ---------------------- | -------------------------------------------- |
+| `path`                      | `string`            | `'./.data/clickhouse'` | Directory for chdb data storage              |
+| `namespace`                 | `string`            | `'payload'`            | Namespace to separate different Payload apps |
+| `table`                     | `string`            | `'data'`               | Table name for storing all documents         |
+| `idType`                    | `'text' \| 'uuid'`  | `'text'`               | ID type for documents                        |
+| `embeddingDimensions`       | `number`            | `1536`                 | Embedding dimensions for vector search       |
+| `vectorIndex`               | `VectorIndexConfig` | `undefined`            | Vector index configuration (see below)       |
+| `defaultTransactionTimeout` | `number \| null`    | `30000`                | Default transaction timeout in milliseconds  |
+
+### Vector Index Configuration
+
+To enable vector similarity search indexing on the search table:
+
+```ts
+import { clickhouseAdapter } from '@dotdo/db-clickhouse'
+
+export default buildConfig({
+  db: clickhouseAdapter({
+    url: process.env.CLICKHOUSE_URL,
+    // ...other options
+    vectorIndex: {
+      enabled: true,
+      metric: 'cosineDistance', // or 'L2Distance' (default)
+    },
+  }),
+})
+```
+
+| Option    | Type                               | Default        | Description                    |
+| --------- | ---------------------------------- | -------------- | ------------------------------ |
+| `enabled` | `boolean`                          | `false`        | Enable vector similarity index |
+| `metric`  | `'L2Distance' \| 'cosineDistance'` | `'L2Distance'` | Distance metric for similarity |
+
+> **Note**: Vector indexes require ClickHouse's experimental vector similarity features to be enabled on your server.
 
 ## Database Schema
 
@@ -144,7 +286,32 @@ All delete operations are soft deletes (setting `deletedAt` timestamp). Data is 
 
 ## Local Development
 
-To run ClickHouse locally for development:
+### Option 1: Embedded ClickHouse with chdb (Recommended)
+
+The easiest way to develop locally is using the chdb adapter. No Docker or external services required:
+
+```bash
+# Install chdb alongside the adapter
+npm install chdb
+```
+
+```ts
+// payload.config.ts
+import { chdbAdapter } from '@dotdo/db-clickhouse/local'
+
+export default buildConfig({
+  db: chdbAdapter({
+    path: './.data/clickhouse',
+    namespace: 'dev',
+  }),
+})
+```
+
+Data is persisted to the specified directory and survives restarts. Add `.data/` to your `.gitignore`.
+
+### Option 2: Docker
+
+Alternatively, run a full ClickHouse server with Docker:
 
 ```bash
 docker run -d \
@@ -152,6 +319,20 @@ docker run -d \
   -p 8123:8123 \
   -p 9000:9000 \
   clickhouse/clickhouse-server:latest
+```
+
+Then use the remote adapter:
+
+```ts
+import { clickhouseAdapter } from '@dotdo/db-clickhouse'
+
+export default buildConfig({
+  db: clickhouseAdapter({
+    url: 'http://localhost:8123',
+    database: 'default',
+    namespace: 'dev',
+  }),
+})
 ```
 
 More detailed usage can be found in the [Payload Docs](https://payloadcms.com/docs/configuration/overview).

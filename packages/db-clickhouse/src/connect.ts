@@ -1,8 +1,11 @@
+import type { ClickHouseClient } from '@clickhouse/client-web'
 import type { Connect } from 'payload'
 
 import { createClient } from '@clickhouse/client-web'
 
-import type { ClickHouseAdapter } from './types.js'
+import type { ClickHouseAdapter, VectorIndexConfig } from './types.js'
+
+import { ChdbClient } from './local/chdbClient.js'
 
 /**
  * Validate that a table name is safe to use in SQL
@@ -108,7 +111,17 @@ ORDER BY (ns, txId, type, id)
  * Generate SQL to create the search table if it doesn't exist
  * Search table supports both full-text and vector similarity search
  */
-function getCreateSearchTableSQL(embeddingDimensions: number): string {
+function getCreateSearchTableSQL(
+  embeddingDimensions: number,
+  vectorIndex?: VectorIndexConfig,
+): string {
+  // Build vector index clause if enabled
+  // ClickHouse vector_similarity requires: INDEX name column TYPE vector_similarity('metric', dimensions)
+  const vectorIndexClause = vectorIndex?.enabled
+    ? `,
+    INDEX embedding_idx embedding TYPE vector_similarity('${vectorIndex.metric || 'L2Distance'}', ${embeddingDimensions}) GRANULARITY 1`
+    : ''
+
   return `
 CREATE TABLE IF NOT EXISTS search (
     id String,
@@ -122,7 +135,7 @@ CREATE TABLE IF NOT EXISTS search (
     errorMessage Nullable(String),
     createdAt DateTime64(3),
     updatedAt DateTime64(3),
-    INDEX text_idx text TYPE tokenbf_v1(10240, 3, 0) GRANULARITY 4
+    INDEX text_idx text TYPE tokenbf_v1(10240, 3, 0) GRANULARITY 4${vectorIndexClause}
 ) ENGINE = ReplacingMergeTree(updatedAt)
 PARTITION BY ns
 ORDER BY (ns, collection, docId, chunkIndex)
@@ -158,56 +171,72 @@ ORDER BY (ns, timestamp, type)
  * Connect to ClickHouse and create the database and data table if needed
  */
 export const connect: Connect = async function connect(this: ClickHouseAdapter): Promise<void> {
-  const { database, password, url, username } = this.config
+  const { client: providedClient, database, password, session, url, username } = this.config
   const dbName = database || 'default'
 
-  // First connect without specifying database to create it if needed
-  const bootstrapClient = createClient({
-    clickhouse_settings: {
-      allow_experimental_json_type: 1,
-    },
-    password: password || '',
-    url,
-    username: username || 'default',
-  })
+  // Determine the client to use - either provided, wrapped from session, or created from URL
+  let clickhouse: ClickHouseClient
 
-  // Validate database name before using in SQL
-  validateDatabaseName(dbName)
-
-  // Create database if it doesn't exist
-  try {
-    await bootstrapClient.command({
-      query: `CREATE DATABASE IF NOT EXISTS ${dbName}`,
-    })
-  } finally {
-    await bootstrapClient.close()
-  }
-
-  // Now connect to the specific database
-  // Resolve timezone: 'auto' detects from environment, undefined defaults to UTC
-  let timezone = this.config.timezone || 'UTC'
-  if (timezone === 'auto') {
-    try {
-      timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-    } catch {
-      timezone = 'UTC' // Fallback if Intl is not available
+  if (providedClient) {
+    // Use provided client directly
+    clickhouse = providedClient as ClickHouseClient
+  } else if (session) {
+    // Wrap chdb session in ChdbClient
+    clickhouse = new ChdbClient(session) as unknown as ClickHouseClient
+  } else {
+    // Validate that URL is provided when no client is given
+    if (!url) {
+      throw new Error('ClickHouse adapter requires either a client or url to be provided')
     }
+
+    // First connect without specifying database to create it if needed
+    const bootstrapClient = createClient({
+      clickhouse_settings: {
+        allow_experimental_json_type: 1,
+      },
+      password: password || '',
+      url,
+      username: username || 'default',
+    })
+
+    // Validate database name before using in SQL
+    validateDatabaseName(dbName)
+
+    // Create database if it doesn't exist
+    try {
+      await bootstrapClient.command({
+        query: `CREATE DATABASE IF NOT EXISTS ${dbName}`,
+      })
+    } finally {
+      await bootstrapClient.close()
+    }
+
+    // Now connect to the specific database
+    // Resolve timezone: 'auto' detects from environment, undefined defaults to UTC
+    let timezone = this.config.timezone || 'UTC'
+    if (timezone === 'auto') {
+      try {
+        timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      } catch {
+        timezone = 'UTC' // Fallback if Intl is not available
+      }
+    }
+    clickhouse = createClient({
+      clickhouse_settings: {
+        // Enable JSON type
+        allow_experimental_json_type: 1,
+        // Set session timezone for consistent DateTime handling
+        session_timezone: timezone,
+      },
+      database: dbName,
+      password: password || '',
+      url,
+      username: username || 'default',
+    })
   }
-  const client = createClient({
-    clickhouse_settings: {
-      // Enable JSON type
-      allow_experimental_json_type: 1,
-      // Set session timezone for consistent DateTime handling
-      session_timezone: timezone,
-    },
-    database: dbName,
-    password: password || '',
-    url,
-    username: username || 'default',
-  })
 
   // Set the clickhouse client for access via payload.db.clickhouse
-  this.clickhouse = client
+  this.clickhouse = clickhouse
 
   // Validate and freeze the table name to prevent SQL injection
   // This must be done before any queries use this.table
@@ -219,27 +248,27 @@ export const connect: Connect = async function connect(this: ClickHouseAdapter):
   })
 
   // Create the data table if it doesn't exist
-  await this.clickhouse.command({
+  await clickhouse.command({
     query: getCreateTableSQL(this.table),
   })
 
   // Create the relationships table if it doesn't exist
-  await this.clickhouse.command({
+  await clickhouse.command({
     query: getCreateRelationshipsTableSQL(this.table),
   })
 
   // Create the actions table if it doesn't exist
-  await this.clickhouse.command({
+  await clickhouse.command({
     query: getCreateActionsTableSQL(),
   })
 
   // Create the search table if it doesn't exist
-  await this.clickhouse.command({
-    query: getCreateSearchTableSQL(this.embeddingDimensions),
+  await clickhouse.command({
+    query: getCreateSearchTableSQL(this.embeddingDimensions, this.vectorIndex),
   })
 
   // Create the events table if it doesn't exist
-  await this.clickhouse.command({
+  await clickhouse.command({
     query: getCreateEventsTableSQL(),
   })
 
@@ -248,23 +277,23 @@ export const connect: Connect = async function connect(this: ClickHouseAdapter):
     this.payload.logger.info(`---- DROPPING DATA FOR NAMESPACE ${this.namespace} ----`)
     // Use mutations_sync=2 to wait for DELETE mutations to complete on all replicas
     // This ensures test isolation by making deletes synchronous
-    await this.clickhouse.command({
+    await clickhouse.command({
       query: `DELETE FROM ${this.table} WHERE ns = {ns:String} SETTINGS mutations_sync = 2`,
       query_params: { ns: this.namespace },
     })
-    await this.clickhouse.command({
+    await clickhouse.command({
       query: `DELETE FROM ${this.table}_relationships WHERE ns = {ns:String} SETTINGS mutations_sync = 2`,
       query_params: { ns: this.namespace },
     })
-    await this.clickhouse.command({
+    await clickhouse.command({
       query: `DELETE FROM actions WHERE ns = {ns:String} SETTINGS mutations_sync = 2`,
       query_params: { ns: this.namespace },
     })
-    await this.clickhouse.command({
+    await clickhouse.command({
       query: `DELETE FROM search WHERE ns = {ns:String} SETTINGS mutations_sync = 2`,
       query_params: { ns: this.namespace },
     })
-    await this.clickhouse.command({
+    await clickhouse.command({
       query: `DELETE FROM events WHERE ns = {ns:String} SETTINGS mutations_sync = 2`,
       query_params: { ns: this.namespace },
     })

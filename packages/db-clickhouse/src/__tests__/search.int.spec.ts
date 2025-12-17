@@ -8,7 +8,7 @@ import { syncToSearch } from '../operations/syncToSearch.js'
 import { updateSearchStatus } from '../operations/updateSearchStatus.js'
 import { setupTestAdapter } from './helpers/setupTestAdapter.js'
 
-describe('Search Integration Tests', () => {
+describe.skipIf(!process.env.CLICKHOUSE_TEST)('Search Integration Tests', () => {
   let adapter: ClickHouseAdapter
   let cleanup: () => Promise<void>
 

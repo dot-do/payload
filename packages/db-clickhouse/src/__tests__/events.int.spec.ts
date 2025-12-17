@@ -6,7 +6,7 @@ import { logEvent } from '../operations/logEvent.js'
 import { queryEvents } from '../operations/queryEvents.js'
 import { setupTestAdapter } from './helpers/setupTestAdapter.js'
 
-describe('Events Integration Tests', () => {
+describe.skipIf(!process.env.CLICKHOUSE_TEST)('Events Integration Tests', () => {
   let adapter: ClickHouseAdapter
   let cleanup: () => Promise<void>
 

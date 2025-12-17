@@ -7,7 +7,7 @@ import { commitTransaction } from '../operations/commitTransaction.js'
 import { rollbackTransaction } from '../operations/rollbackTransaction.js'
 import { setupTestAdapter } from './helpers/setupTestAdapter.js'
 
-describe('Transactions Integration Tests', () => {
+describe.skipIf(!process.env.CLICKHOUSE_TEST)('Transactions Integration Tests', () => {
   let adapter: ClickHouseAdapter
   let cleanup: () => Promise<void>
 

@@ -1,4 +1,26 @@
 /**
+ * Validate that a namespace is safe to use in queries
+ * Allows alphanumeric, underscores, hyphens, and dots (for domain names)
+ */
+export function validateNamespace(namespace: string): boolean {
+  // Allow alphanumeric, underscores, hyphens, and dots
+  // Must start with alphanumeric or underscore
+  return /^\w[\w.-]*$/.test(namespace)
+}
+
+/**
+ * Validate and return the namespace, throwing if invalid
+ */
+export function assertValidNamespace(namespace: string): string {
+  if (!validateNamespace(namespace)) {
+    throw new Error(
+      `Invalid namespace '${namespace}'. Namespaces must start with a letter, number, or underscore and contain only alphanumeric characters, underscores, hyphens, and dots.`,
+    )
+  }
+  return namespace
+}
+
+/**
  * Validate that a collection slug is safe to use in queries
  */
 export function validateCollectionSlug(slug: string): boolean {

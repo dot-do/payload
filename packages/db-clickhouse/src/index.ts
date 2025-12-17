@@ -2,7 +2,6 @@ import type { DatabaseAdapterObj, Payload } from 'payload'
 
 import path from 'path'
 import { createDatabaseAdapter } from 'payload'
-import { fileURLToPath } from 'url'
 
 import type { ClickHouseAdapter, ClickHouseAdapterArgs } from './types.js'
 
@@ -48,10 +47,15 @@ import {
   upsert,
   upsertMany,
 } from './operations/index.js'
+import { assertValidNamespace } from './utilities/sanitize.js'
+
+export { ChdbClient } from './local/chdbClient.js'
 
 export type {
+  ChdbSession,
   ClickHouseAdapter,
   ClickHouseAdapterArgs,
+  ClickHouseClientLike,
   EventRow,
   ExecuteArgs,
   GetSearchQueueArgs,
@@ -67,7 +71,10 @@ export type {
   SyncToSearchArgs,
   UpdateSearchStatusArgs,
   UpsertManyArgs,
+  VectorIndexConfig,
 } from './types.js'
+
+export { assertValidNamespace, validateNamespace } from './utilities/sanitize.js'
 
 /**
  * Create a ClickHouse database adapter for Payload CMS
@@ -90,16 +97,27 @@ export type {
  */
 export function clickhouseAdapter(args: ClickHouseAdapterArgs): DatabaseAdapterObj {
   const {
+    client,
     database = 'default',
     defaultTransactionTimeout = 30_000,
     embeddingDimensions = 1536,
     idType = 'text',
     namespace = 'payload',
     password = '',
+    session,
     table = 'data',
     url,
     username = 'default',
+    vectorIndex,
   } = args
+
+  // Validate that either client, session, or url is provided
+  if (!client && !session && !url) {
+    throw new Error('ClickHouse adapter requires either a client, session, or url to be provided')
+  }
+
+  // Validate namespace (allows dots for domain names)
+  assertValidNamespace(namespace)
 
   function adapter({ payload }: { payload: Payload }) {
     return createDatabaseAdapter<ClickHouseAdapter>({
@@ -110,15 +128,18 @@ export function clickhouseAdapter(args: ClickHouseAdapterArgs): DatabaseAdapterO
       // ClickHouse-specific config
       clickhouse: null, // Set during connect, exposes raw client via payload.db.clickhouse
       config: {
+        client,
         database,
         defaultTransactionTimeout,
         embeddingDimensions,
         idType,
         namespace,
         password,
+        session,
         table,
         url,
         username,
+        vectorIndex,
       },
       database,
       defaultTransactionTimeout,
@@ -126,6 +147,7 @@ export function clickhouseAdapter(args: ClickHouseAdapterArgs): DatabaseAdapterO
       idType,
       namespace,
       table,
+      vectorIndex,
 
       // Core adapter
       payload,

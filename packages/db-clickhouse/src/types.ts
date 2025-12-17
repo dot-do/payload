@@ -10,9 +10,23 @@ import type {
 } from 'payload'
 
 /**
+ * Generic ClickHouse client interface that works with both
+ * @clickhouse/client-web and chdb-wrapped clients
+ */
+export interface ClickHouseClientLike {
+  close(): Promise<void>
+  command(params: { query: string; query_params?: Record<string, unknown> }): Promise<unknown>
+  query<T = unknown>(params: {
+    format?: string
+    query: string
+    query_params?: Record<string, unknown>
+  }): Promise<{ json: <R = T>() => Promise<R[]> }>
+}
+
+/**
  * Arguments for raw query execution
  */
-export interface ExecuteArgs<T = unknown> {
+export interface ExecuteArgs<_T = unknown> {
   /** The SQL query to execute */
   query: string
   /** Query parameters for parameterized queries */
@@ -33,7 +47,43 @@ export interface UpsertManyArgs {
   req?: PayloadRequest
 }
 
+/**
+ * Vector index configuration for similarity search
+ */
+export interface VectorIndexConfig {
+  /** Enable vector index on the search table (default: false) */
+  enabled: boolean
+  /**
+   * Distance metric for similarity search
+   * - 'L2Distance': Euclidean distance (default)
+   * - 'cosineDistance': Cosine similarity
+   */
+  metric?: 'cosineDistance' | 'L2Distance'
+}
+
+/**
+ * chdb Session interface - matches the Session class from 'chdb' package
+ */
+export interface ChdbSession {
+  cleanup(): void
+  query(query: string, format?: string): string
+}
+
 export interface ClickHouseAdapterArgs {
+  /**
+   * Pre-configured ClickHouse client instance.
+   * If provided, url/username/password are ignored and the client is used directly.
+   *
+   * @example
+   * ```ts
+   * import { createClient } from '@clickhouse/client-web'
+   * import { clickhouseAdapter } from '@dotdo/db-clickhouse'
+   *
+   * const client = createClient({ url: '...', username: '...', password: '...' })
+   * const adapter = clickhouseAdapter({ client, database: 'mydb' })
+   * ```
+   */
+  client?: ClickHouseClientLike
   /** Database name (default: 'default') */
   database?: string
   /** Default transaction timeout in ms (default: 30000, null for no timeout) */
@@ -46,14 +96,30 @@ export interface ClickHouseAdapterArgs {
   namespace?: string
   /** ClickHouse password */
   password?: string
+  /**
+   * chdb Session instance for embedded ClickHouse.
+   * If provided, it will be wrapped in a ChdbClient automatically.
+   *
+   * @example
+   * ```ts
+   * import { Session } from 'chdb'
+   * import { clickhouseAdapter } from '@dotdo/db-clickhouse'
+   *
+   * const session = new Session('/path/to/data')
+   * const adapter = clickhouseAdapter({ session })
+   * ```
+   */
+  session?: ChdbSession
   /** Table name (default: 'data') */
   table?: string
   /** Timezone for DateTime handling (default: 'UTC'). Use 'auto' to detect from environment. */
   timezone?: string
-  /** ClickHouse server URL (e.g., 'https://host:8443') */
-  url: string
+  /** ClickHouse server URL (e.g., 'https://host:8443'). Required if client is not provided. */
+  url?: string
   /** ClickHouse username */
   username?: string
+  /** Vector index configuration for similarity search (default: disabled) */
+  vectorIndex?: VectorIndexConfig
 }
 
 export type ClickHouseAdapter = {
@@ -195,6 +261,8 @@ export type ClickHouseAdapter = {
    * ```
    */
   upsertMany: (args: UpsertManyArgs) => Promise<Document[]>
+  /** Vector index configuration */
+  vectorIndex?: VectorIndexConfig
 } & BaseDatabaseAdapter
 
 /**
