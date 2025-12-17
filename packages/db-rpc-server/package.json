@@ -1,0 +1,98 @@
+{
+  "name": "@payloadcms/db-rpc-server",
+  "version": "0.1.0",
+  "description": "RPC server for Payload database adapters - exposes any adapter via HTTP/WebSocket using capnweb",
+  "keywords": [
+    "payload",
+    "payloadcms",
+    "cms",
+    "database",
+    "adapter",
+    "rpc",
+    "server",
+    "hono",
+    "cloudflare-workers"
+  ],
+  "homepage": "https://payloadcms.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/payloadcms/payload.git",
+    "directory": "packages/db-rpc-server"
+  },
+  "license": "MIT",
+  "author": "Payload <dev@payloadcms.com> (https://payloadcms.com)",
+  "maintainers": [
+    {
+      "name": "Payload",
+      "email": "info@payloadcms.com",
+      "url": "https://payloadcms.com"
+    }
+  ],
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./hono": {
+      "import": "./src/middleware/hono.ts",
+      "types": "./src/middleware/hono.ts",
+      "default": "./src/middleware/hono.ts"
+    }
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm build:types && pnpm build:swc",
+    "build:debug": "pnpm build",
+    "build:swc": "swc ./src -d ./dist --config-file .swcrc-build --strip-leading-paths",
+    "build:types": "tsc --emitDeclarationOnly --outDir dist",
+    "clean": "rimraf -g {dist,*.tsbuildinfo}",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:int": "vitest run --config vitest.int.config.ts",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@payloadcms/db-rpc": "workspace:*",
+    "capnweb": "^0.1.0",
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241205.0",
+    "@hono/node-server": "^1.13.0",
+    "@payloadcms/db-mongodb": "workspace:*",
+    "@payloadcms/db-sqlite": "workspace:*",
+    "@payloadcms/eslint-config": "workspace:*",
+    "mongodb-memory-server": "10.1.4",
+    "payload": "workspace:*",
+    "vitest": "^3.2.0",
+    "wrangler": "^3.0.0"
+  },
+  "peerDependencies": {
+    "hono": "^4.0.0",
+    "payload": "^3.0.0"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./hono": {
+        "import": "./dist/middleware/hono.js",
+        "types": "./dist/middleware/hono.d.ts",
+        "default": "./dist/middleware/hono.js"
+      }
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  }
+}

@@ -1,0 +1,7 @@
+# Wrangler configuration for testing db-rpc-server with Cloudflare Workers
+name = "db-rpc-test-worker"
+main = "worker.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+ENVIRONMENT = "test"
