@@ -86,13 +86,14 @@ export function rpcAdapter(args: RpcAdapterArgs): DatabaseAdapterObj<RpcAdapter>
       if (!connected) {
         return Promise.reject(new Error('RPC client not connected. Call connect() first.'))
       }
-      // Create fresh session for each batch
-      const session = createSession()
-      // Chain token resolution -> authenticate -> operation in a single promise
-      // DO NOT await authenticate() - chain directly to preserve pipelining
-      return resolveToken().then((tokenValue) =>
-        operation(session.authenticate(tokenValue) as AuthenticatedDatabaseApi),
-      ) as Promise<Awaited<T>>
+      // IMPORTANT: Create session INSIDE the .then() callback, AFTER token resolves.
+      // capnweb starts a setTimeout(0) batch timer on session creation.
+      // If we create the session before token resolution and the token takes >1 tick,
+      // the batch sends empty and subsequent calls fail with "Batch RPC request ended."
+      return resolveToken().then((tokenValue) => {
+        const session = createSession()
+        return operation(session.authenticate(tokenValue) as AuthenticatedDatabaseApi)
+      }) as Promise<Awaited<T>>
     }
 
     return createDatabaseAdapter<RpcAdapter>({
