@@ -11,6 +11,7 @@ export const defaultESLintIgnores = [
   '**/playwright.config.ts',
   '**/jest.config.js',
   '**/vitest.config.ts',
+  '**/vitest.*.config.ts',
   '**/tsconfig.tsbuildinfo',
   '**/README.md',
   '**/eslint.config.js',

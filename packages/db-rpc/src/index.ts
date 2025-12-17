@@ -94,13 +94,14 @@ export function rpcAdapter(args: RpcAdapterArgs): DatabaseAdapterObj<RpcAdapter>
         this.serverInfo = serverInfo
       },
 
-      destroy() {
+      async destroy() {
         if (client) {
           // Dispose of the RPC session
           ;(client as unknown as { [Symbol.dispose](): void })[Symbol.dispose]?.()
           client = null
           authenticatedApi = null
         }
+        await Promise.resolve()
       },
 
       // ============== Transaction Methods ==============

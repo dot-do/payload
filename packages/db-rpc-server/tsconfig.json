@@ -3,6 +3,5 @@
   "references": [{ "path": "../payload" }, { "path": "../db-rpc" }],
   "compilerOptions": {
     "lib": ["ES2022"]
-  },
-  "include": ["src", "vitest.config.ts", "vitest.int.config.ts"]
+  }
 }
