@@ -80,6 +80,7 @@
     "payload": "^3.0.0"
   },
   "publishConfig": {
+    "access": "public",
     "dependencies": {
       "@dotdo/db-rpc": "^0.1.0",
       "capnweb": "^0.1.0",
