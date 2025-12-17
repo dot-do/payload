@@ -42,27 +42,40 @@ export function rpcAdapter(args: RpcAdapterArgs): DatabaseAdapterObj<RpcAdapter>
 
   function adapter({ payload }: { payload: Payload }): RpcAdapter {
     let client: null | PublicDatabaseApi = null
-    let authenticatedApi: AuthenticatedDatabaseApi | null = null
     let serverInfo: RpcAdapter['serverInfo'] = null
 
-    const getToken = async (): Promise<string> => {
-      if (typeof token === 'function') {
-        return token()
-      }
-      return token
+    /**
+     * Get the token value (resolves function if needed)
+     * Returns a Promise that resolves to the token string.
+     */
+    const resolveToken = (): Promise<string> => {
+      const tokenValue = typeof token === 'function' ? token() : token
+      return Promise.resolve(tokenValue)
     }
 
-    const getAuthenticatedApi = async (): Promise<AuthenticatedDatabaseApi> => {
+    /**
+     * Helper to chain authenticate() with an operation.
+     *
+     * IMPORTANT: With capnweb, you must NOT await intermediate RPC calls.
+     * This helper ensures proper promise pipelining by returning a single
+     * chained promise without intermediate awaits.
+     *
+     *   ❌ Wrong: const api = await client.authenticate(token); await api.find()
+     *   ✅ Right: await client.authenticate(token).find()
+     *
+     * Uses Awaited<T> to flatten nested promises since TypeScript doesn't
+     * understand capnweb's thenable stubs that support method chaining.
+     */
+    const withAuth = <T>(operation: (auth: AuthenticatedDatabaseApi) => T): Promise<Awaited<T>> => {
       if (!client) {
-        throw new Error('RPC client not connected. Call connect() first.')
+        return Promise.reject(new Error('RPC client not connected. Call connect() first.'))
       }
-      if (!authenticatedApi) {
-        const tokenValue = await getToken()
-        // authenticate() may return a Promise (server-side) or direct stub (capnweb)
-        const result = client.authenticate(tokenValue)
-        authenticatedApi = result instanceof Promise ? await result : result
-      }
-      return authenticatedApi
+      // Chain token resolution -> authenticate -> operation in a single promise
+      // DO NOT await authenticate() - chain directly to preserve pipelining
+      // capnweb stubs are thenable AND have methods - TypeScript doesn't understand this
+      return resolveToken().then((tokenValue) =>
+        operation(client!.authenticate(tokenValue) as AuthenticatedDatabaseApi),
+      ) as Promise<Awaited<T>>
     }
 
     return createDatabaseAdapter<RpcAdapter>({
@@ -99,255 +112,274 @@ export function rpcAdapter(args: RpcAdapterArgs): DatabaseAdapterObj<RpcAdapter>
           // Dispose of the RPC session
           ;(client as unknown as { [Symbol.dispose](): void })[Symbol.dispose]?.()
           client = null
-          authenticatedApi = null
         }
         await Promise.resolve()
       },
 
       // ============== Transaction Methods ==============
 
-      async beginTransaction(options) {
-        const api = await getAuthenticatedApi()
-        const txId = await api.beginTransaction(options)
-        return txId
+      beginTransaction(options) {
+        return withAuth((auth) => auth.beginTransaction(options))
       },
 
       async commitTransaction(id) {
-        const api = await getAuthenticatedApi()
         const txId = typeof id === 'string' ? id : String(await id)
-        await api.commitTransaction(txId)
+        return withAuth((auth) => auth.commitTransaction(txId))
       },
 
       async rollbackTransaction(id) {
-        const api = await getAuthenticatedApi()
         const txId = typeof id === 'string' ? id : String(await id)
-        await api.rollbackTransaction(txId)
+        return withAuth((auth) => auth.rollbackTransaction(txId))
       },
 
       // ============== Collection CRUD ==============
 
-      async find(args) {
-        const api = await getAuthenticatedApi()
+      find(args) {
         const { req, ...rest } = args
-        return api.find({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.find({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        ) as any
       },
 
-      async findOne(args) {
-        const api = await getAuthenticatedApi()
+      findOne(args) {
         const { req, ...rest } = args
-        return api.findOne({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.findOne({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        ) as any
       },
 
-      async create(args) {
-        const api = await getAuthenticatedApi()
+      create(args) {
         const { req, ...rest } = args
-        return api.create({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.create({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async updateOne(args) {
-        const api = await getAuthenticatedApi()
+      updateOne(args) {
         const { req, ...rest } = args
-        return api.updateOne({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.updateOne({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async updateMany(args) {
-        const api = await getAuthenticatedApi()
+      updateMany(args) {
         const { req, ...rest } = args
-        return api.updateMany({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.updateMany({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async deleteOne(args) {
-        const api = await getAuthenticatedApi()
+      deleteOne(args) {
         const { req, ...rest } = args
-        return api.deleteOne({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.deleteOne({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async deleteMany(args) {
-        const api = await getAuthenticatedApi()
+      deleteMany(args) {
         const { req, ...rest } = args
-        await api.deleteMany({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.deleteMany({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async count(args) {
-        const api = await getAuthenticatedApi()
+      count(args) {
         const { req, ...rest } = args
-        return api.count({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.count({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async upsert(args) {
-        const api = await getAuthenticatedApi()
+      upsert(args) {
         const { req, ...rest } = args
-        return api.upsert({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.upsert({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async findDistinct(args) {
-        const api = await getAuthenticatedApi()
+      findDistinct(args) {
         const { req, ...rest } = args
-        return api.findDistinct({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.findDistinct({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async queryDrafts(args) {
-        const api = await getAuthenticatedApi()
+      queryDrafts(args) {
         const { req, ...rest } = args
-        return api.queryDrafts({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.queryDrafts({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        ) as any
       },
 
       // ============== Globals ==============
 
-      async findGlobal(args) {
-        const api = await getAuthenticatedApi()
+      findGlobal(args) {
         const { req, ...rest } = args
-        return api.findGlobal({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.findGlobal({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        ) as any
       },
 
-      async createGlobal(args) {
-        const api = await getAuthenticatedApi()
+      createGlobal(args) {
         const { req, ...rest } = args
-        return api.createGlobal({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.createGlobal({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async updateGlobal(args) {
-        const api = await getAuthenticatedApi()
+      updateGlobal(args) {
         const { req, ...rest } = args
-        return api.updateGlobal({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.updateGlobal({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
       // ============== Versions ==============
 
-      async findVersions(args) {
-        const api = await getAuthenticatedApi()
+      findVersions(args) {
         const { req, ...rest } = args
-        return api.findVersions({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.findVersions({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        ) as any
       },
 
-      async createVersion(args) {
-        const api = await getAuthenticatedApi()
+      createVersion(args) {
         const { req, ...rest } = args
-        return api.createVersion({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.createVersion({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async updateVersion(args) {
-        const api = await getAuthenticatedApi()
+      updateVersion(args) {
         const { req, ...rest } = args
-        return api.updateVersion({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.updateVersion({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async deleteVersions(args) {
-        const api = await getAuthenticatedApi()
+      deleteVersions(args) {
         const { req, ...rest } = args
-        await api.deleteVersions({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.deleteVersions({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async countVersions(args) {
-        const api = await getAuthenticatedApi()
+      countVersions(args) {
         const { req, ...rest } = args
-        return api.countVersions({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.countVersions({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
       // ============== Global Versions ==============
 
-      async findGlobalVersions(args) {
-        const api = await getAuthenticatedApi()
+      findGlobalVersions(args) {
         const { req, ...rest } = args
-        return api.findGlobalVersions({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.findGlobalVersions({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        ) as any
       },
 
-      async createGlobalVersion(args) {
-        const api = await getAuthenticatedApi()
+      createGlobalVersion(args) {
         const { req, ...rest } = args
-        return api.createGlobalVersion({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.createGlobalVersion({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async updateGlobalVersion(args) {
-        const api = await getAuthenticatedApi()
+      updateGlobalVersion(args) {
         const { req, ...rest } = args
-        return api.updateGlobalVersion({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.updateGlobalVersion({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
-      async countGlobalVersions(args) {
-        const api = await getAuthenticatedApi()
+      countGlobalVersions(args) {
         const { req, ...rest } = args
-        return api.countGlobalVersions({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.countGlobalVersions({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
       // ============== Jobs ==============
 
-      async updateJobs(args) {
-        const api = await getAuthenticatedApi()
+      updateJobs(args) {
         const { req, ...rest } = args
-        return api.updateJobs({
-          ...rest,
-          transactionID: req?.transactionID as string | undefined,
-        })
+        return withAuth((auth) =>
+          auth.updateJobs({
+            ...rest,
+            transactionID: req?.transactionID as string | undefined,
+          }),
+        )
       },
 
       // ============== Migrations (not supported over RPC) ==============
