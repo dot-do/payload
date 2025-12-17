@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/db-clickhouse",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "ClickHouse database adapter for Payload CMS, optimized for Cloudflare Workers",
   "keywords": [
     "payload",
