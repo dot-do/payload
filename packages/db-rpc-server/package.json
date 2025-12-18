@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/db-rpc-server",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "RPC server for Payload database adapters - exposes any adapter via HTTP/WebSocket using capnweb",
   "keywords": [
     "payload",
@@ -61,7 +61,7 @@
   },
   "dependencies": {
     "@dotdo/db-rpc": "workspace:*",
-    "capnweb": "^0.1.0",
+    "capnweb": "^0.3.0",
     "hono": "^4.0.0"
   },
   "devDependencies": {

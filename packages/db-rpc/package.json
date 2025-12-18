@@ -1,6 +1,6 @@
 {
   "name": "@dotdo/db-rpc",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "RPC client database adapter for Payload - connects to a remote db-rpc-server",
   "keywords": [
     "payload",
@@ -58,7 +58,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "capnweb": "^0.1.0"
+    "capnweb": "^0.3.0"
   },
   "devDependencies": {
     "@payloadcms/eslint-config": "workspace:*",
